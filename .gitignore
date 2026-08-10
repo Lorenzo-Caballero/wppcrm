@@ -1,8 +1,12 @@
 node_modules/
 .env
 *.log
-server/data/
-server/tokens/
-nginx/certbot/
-data/
 .DS_Store
+
+# Datos generados en runtime (tokens de WhatsApp, media, backups).
+# OJO: las barras iniciales son obligatorias. Sin anclar, "data/" también
+# tapaba server/src/data/, que SÍ va al repo (códigos de área y de país).
+/data/
+/server/data/
+/server/tokens/
+/nginx/certbot/
