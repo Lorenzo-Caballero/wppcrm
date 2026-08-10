@@ -20,7 +20,10 @@ app.use(helmet({
       defaultSrc:  ["'self'"],
       scriptSrc:   ["'self'"],
       styleSrc:    ["'self'", "'unsafe-inline'"],   // estilos inline puntuales del CRM
-      imgSrc:      ["'self'", "data:", "blob:"],    // el QR llega como data:image/png;base64
+      // data: para el QR · blob: para la vista previa de adjuntos ·
+      // https: porque las fotos de perfil las sirve WhatsApp (pps.whatsapp.net)
+      imgSrc:      ["'self'", "data:", "blob:", "https:"],
+      mediaSrc:    ["'self'", "blob:", "data:"],    // audio y video de los chats
       connectSrc:  ["'self'", "ws:", "wss:"],
       fontSrc:     ["'self'", "data:"],
       objectSrc:   ["'none'"],

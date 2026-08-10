@@ -9,5 +9,7 @@ router.use("/admin",     require("./admin.routes"))
 router.use("/sessions",  require("./sessions.routes"))
 router.use("/chats",     require("./chats.routes"))
 router.use("/campaigns", require("./campaigns.routes"))
+router.use("/status",    require("./status.routes"))
+router.use("/media",     require("./media.routes"))
 
 module.exports = router

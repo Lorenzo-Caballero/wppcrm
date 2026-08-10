@@ -169,3 +169,47 @@ CREATE TABLE IF NOT EXISTS audit_log (
   detail     JSONB       NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- ---------- RESPUESTAS RÁPIDAS ------------------------------
+-- Se insertan en el chat escribiendo /atajo
+CREATE TABLE IF NOT EXISTS quick_replies (
+  id         SERIAL PRIMARY KEY,
+  tenant_id  INT         NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  shortcut   TEXT        NOT NULL,
+  body       TEXT        NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, shortcut)
+);
+
+-- ---------- ESTADOS PUBLICADOS ------------------------------
+CREATE TABLE IF NOT EXISTS statuses (
+  id         SERIAL PRIMARY KEY,
+  tenant_id  INT         NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  session_id INT         REFERENCES wa_sessions(id) ON DELETE SET NULL,
+  tipo       TEXT        NOT NULL,          -- texto | imagen | video
+  contenido  TEXT,                          -- texto del estado o epígrafe
+  media_url  TEXT,
+  opciones   JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_by INT         REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_statuses_tenant ON statuses(tenant_id, created_at DESC);
+
+-- ============================================================
+--  AMPLIACIONES DE COLUMNAS
+--  Van con ADD COLUMN IF NOT EXISTS para que este archivo se
+--  siga pudiendo correr entero en cada arranque sin romper nada.
+-- ============================================================
+ALTER TABLE chats    ADD COLUMN IF NOT EXISTS notes         TEXT;
+ALTER TABLE chats    ADD COLUMN IF NOT EXISTS follow_up_at  TIMESTAMPTZ;
+ALTER TABLE chats    ADD COLUMN IF NOT EXISTS muted_until   TIMESTAMPTZ;
+
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_mime    TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS media_name    TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS quoted_id     TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS starred       BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS reaction      TEXT;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted       BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_chats_followup ON chats(tenant_id, follow_up_at)
+  WHERE follow_up_at IS NOT NULL;

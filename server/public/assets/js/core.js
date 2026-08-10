@@ -183,6 +183,62 @@ function confirmar(mensaje, textoBoton = "Confirmar") {
   })
 }
 
+/* ---------------- Menú contextual ---------------- */
+/**
+ * Menú flotante anclado a un elemento o a un punto {x, y}.
+ * items: [{icono, texto, accion, peligro}] · {separador:true} · {titulo:"..."}
+ */
+function menuFlotante(anclaOPunto, items) {
+  document.querySelector(".menu-flotante")?.remove()
+
+  const menu = document.createElement("div")
+  menu.className = "menu-flotante"
+  menu.innerHTML = items.map((it, i) => {
+    if (it.separador) return "<hr>"
+    if (it.titulo)    return '<div class="titulo">' + esc(it.titulo) + "</div>"
+    return `<button data-i="${i}" class="${it.peligro ? "peligro" : ""}">
+              <span style="width:18px;text-align:center">${it.icono || ""}</span>
+              <span>${esc(it.texto)}</span>
+            </button>`
+  }).join("")
+  document.body.appendChild(menu)
+
+  // Posicionamiento: se corrige para que nunca quede fuera de la ventana.
+  const r = anclaOPunto instanceof Element
+    ? anclaOPunto.getBoundingClientRect()
+    : { left: anclaOPunto.x, right: anclaOPunto.x, top: anclaOPunto.y, bottom: anclaOPunto.y }
+
+  const caja = menu.getBoundingClientRect()
+  let x = Math.min(r.left, window.innerWidth  - caja.width  - 10)
+  let y = r.bottom + 6
+  if (y + caja.height > window.innerHeight - 10) y = Math.max(10, r.top - caja.height - 6)
+  menu.style.left = Math.max(10, x) + "px"
+  menu.style.top  = y + "px"
+
+  const cerrar = () => {
+    menu.remove()
+    document.removeEventListener("mousedown", alClickAfuera, true)
+    document.removeEventListener("keydown", alEscape, true)
+  }
+  const alClickAfuera = ev => { if (!menu.contains(ev.target)) cerrar() }
+  const alEscape = ev => { if (ev.key === "Escape") cerrar() }
+
+  // El listener se agrega en el próximo tick: si no, el mismo click que
+  // abrió el menú lo cerraría de inmediato.
+  setTimeout(() => {
+    document.addEventListener("mousedown", alClickAfuera, true)
+    document.addEventListener("keydown", alEscape, true)
+  }, 0)
+
+  menu.querySelectorAll("[data-i]").forEach(b => b.addEventListener("click", () => {
+    const item = items[Number(b.dataset.i)]
+    cerrar()
+    item.accion?.()
+  }))
+
+  return cerrar
+}
+
 /* ---------------- Sesión ---------------- */
 async function cargarSesion() {
   try {

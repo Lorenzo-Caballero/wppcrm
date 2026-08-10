@@ -19,13 +19,45 @@ que respetan las reglas anti-baneo del bot original (`fau.js`).
 
 **CRM del cliente** (`/app`)
 - Botón **Conectar WhatsApp** → QR en pantalla, se actualiza solo por WebSocket
-- Lista de chats con último mensaje, no leídos, fijados y estado
+- Lista de chats con último mensaje, no leídos, fijados, etiquetas y estado
 - **Responder desde el CRM**, con tipeo simulado antes de enviar
-- Ver **cuándo escribió por última vez** cada contacto
-- Ordenar por: recientes · última respuesta · no leídos · zona · nombre · antiguos
+- **Enviar archivos**: imagen, video, audio, nota de voz y documentos
+  (botón 📎, arrastrar y soltar, o pegar del portapapeles)
+- Ver **cuándo escribió por última vez** cada contacto y quién habló último
+- Ordenar por: recientes · última respuesta · más fríos · no leídos · zona · nombre
 - **Separar chats por código de área**: `54` → Argentina, `54 223` → Mar del Plata
-- Difusiones masivas con mensaje distinto para cada contacto
-- Plantillas reutilizables
+- **Selección múltiple** con Ctrl+click, Shift+click y "Todos" → acciones masivas
+- Difusiones masivas segmentadas por provincia y ciudad
+- **Publicar estados** de WhatsApp (texto con fondo, imagen o video)
+- Plantillas, respuestas rápidas, notas internas y recordatorios de seguimiento
+
+### Funciones de WhatsApp replicadas
+
+| En el chat | En cada mensaje |
+|---|---|
+| Archivar / desarchivar | Responder citando |
+| Silenciar (8 h / 1 semana) | Reaccionar con emoji |
+| Fijar (también en WhatsApp) | Reenviar a otro chat |
+| Marcar como no leído | Destacar ⭐ |
+| Vaciar conversación | Editar (dentro de los 15 min) |
+| Eliminar chat | Eliminar para todos |
+| Bloquear contacto | Descargar el archivo recibido |
+| Foto de perfil, en línea y última vez | |
+
+Las acciones se aplican **en el WhatsApp real**, no solo en la base del CRM.
+
+### Selección múltiple
+
+| Gesto | Qué hace |
+|---|---|
+| Click | Abre la conversación |
+| **Ctrl/⌘ + click** | Agrega o saca ese chat de la selección |
+| **Shift + click** | Selecciona todo el rango desde el último |
+| Click (con selección activa) | Sigue sumando, sin tener que mantener Ctrl |
+| Botón **Todos** | Selecciona **todo lo filtrado**, no solo lo que está en pantalla |
+
+Con la selección hecha: etiquetar, marcar leídos, fijar, archivar, cambiar estado,
+programar seguimiento, **exportar a CSV** o **difundir exactamente a esos contactos**.
 
 ---
 
@@ -177,8 +209,17 @@ Todas las rutas cuelgan de `/api` y usan la cookie de sesión.
 | `GET/POST/PATCH/DELETE` | `/admin/tenants…` | Clientes *(solo dueño)* |
 | `GET` | `/sessions` | Líneas de WhatsApp |
 | `POST` | `/sessions/:id/connect` · `/logout` · `/sync` | Vincular, desvincular, sincronizar |
-| `GET` | `/chats` · `/chats/zonas` · `/chats/resumen` | Listado, facetas por zona, contadores |
+| `GET` | `/chats` · `/chats/zonas` · `/chats/resumen` · `/chats/tags` | Listado, facetas, etiquetas |
 | `GET/POST` | `/chats/:id/messages` | Conversación y respuesta |
+| `POST` | `/chats/:id/archivo` | Adjuntos (multipart) |
+| `POST` | `/chats/:id/mensajes/accion` | Responder · reaccionar · reenviar · destacar · editar · eliminar |
+| `POST` | `/chats/:id/accion` | Archivar · silenciar · no leído · vaciar · bloquear · eliminar |
+| `GET` | `/chats/:id/info` | Foto de perfil, en línea, última vez |
+| `POST` | `/chats/:id/notas` · `/seguimiento` | Notas internas y recordatorios |
+| `GET/POST` | `/chats/ids` · `/masivo` · `/exportar` | Selección múltiple, acciones masivas y CSV |
+| `GET/POST/DELETE` | `/chats/respuestas-rapidas` | Respuestas rápidas |
+| `POST` | `/status/texto` · `/status/media` | Publicar estados |
+| `GET` | `/media/:tenantId/:archivo` | Archivos (aislados por cliente) |
 | `POST` | `/campaigns` · `/:id/start` · `/pause` · `/cancel` | Difusiones |
 | `POST` | `/campaigns/preview` · `/audience` | Variantes y tamaño de audiencia |
 

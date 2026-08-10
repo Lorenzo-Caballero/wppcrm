@@ -52,6 +52,11 @@ async function procesarMensajeEntrante(sesion, msg) {
       direction: "in",
       type:      msg.type || "chat",
       body:      describirMensaje(msg),
+      // Guardamos mime y nombre aunque todavía no bajemos el archivo: el CRM
+      // lo descarga on-demand cuando el operador abre la conversación.
+      mediaMime: msg.mimetype || null,
+      mediaName: msg.filename || null,
+      quotedId:  msg.quotedMsgId || msg.quotedMsg?.id || null,
       sentAt:    msg.timestamp ? new Date(msg.timestamp * 1000) : new Date(),
       sumarNoLeido: true
     })

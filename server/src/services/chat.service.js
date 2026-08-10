@@ -238,6 +238,136 @@ async function marcarTodoLeido(tenantId) {
 }
 
 // ------------------------------------------------------------
+//  OPERACIONES MASIVAS (sobre la selección del CRM)
+// ------------------------------------------------------------
+/**
+ * Aplica una acción a varios chats de una vez.
+ * @param accion etiquetar | desetiquetar | archivar | desarchivar | leer |
+ *               estado | fijar | desfijar | seguimiento
+ */
+async function accionMasiva(tenantId, ids, accion, valor) {
+  const lista = (ids || []).map(n => parseInt(n, 10)).filter(Number.isFinite)
+  if (!lista.length) return { afectados: 0 }
+
+  const SQL = {
+    etiquetar:   ["UPDATE chats SET tags = array_append(tags, $3) WHERE tenant_id = $1 AND id = ANY($2::bigint[]) AND NOT ($3 = ANY(tags))", true],
+    desetiquetar:["UPDATE chats SET tags = array_remove(tags, $3) WHERE tenant_id = $1 AND id = ANY($2::bigint[])", true],
+    archivar:    ["UPDATE chats SET archived = TRUE  WHERE tenant_id = $1 AND id = ANY($2::bigint[])", false],
+    desarchivar: ["UPDATE chats SET archived = FALSE WHERE tenant_id = $1 AND id = ANY($2::bigint[])", false],
+    fijar:       ["UPDATE chats SET pinned   = TRUE  WHERE tenant_id = $1 AND id = ANY($2::bigint[])", false],
+    desfijar:    ["UPDATE chats SET pinned   = FALSE WHERE tenant_id = $1 AND id = ANY($2::bigint[])", false],
+    leer:        ["UPDATE chats SET unread_count = 0 WHERE tenant_id = $1 AND id = ANY($2::bigint[])", false],
+    estado:      ["UPDATE chats SET status = $3 WHERE tenant_id = $1 AND id = ANY($2::bigint[])", true],
+    seguimiento: ["UPDATE chats SET follow_up_at = $3::timestamptz WHERE tenant_id = $1 AND id = ANY($2::bigint[])", true]
+  }
+
+  const entrada = SQL[accion]
+  if (!entrada) throw new Error("Acción desconocida: " + accion)
+
+  const [sql, usaValor] = entrada
+  const params = usaValor ? [tenantId, lista, valor] : [tenantId, lista]
+  const r = await db.query(sql, params)
+  return { afectados: r.rowCount }
+}
+
+/** Trae los chats seleccionados (para difundir o exportar). */
+async function chatsPorIds(tenantId, ids) {
+  const lista = (ids || []).map(n => parseInt(n, 10)).filter(Number.isFinite)
+  if (!lista.length) return []
+  return db.many(
+    `SELECT c.id, c.wa_chat_id, c.status, c.tags, c.last_message_at, c.last_inbound_at,
+            ct.jid, ct.phone, ct.name, ct.push_name, ct.region, ct.province, ct.country, ct.area_code
+       FROM chats c JOIN contacts ct ON ct.id = c.contact_id
+      WHERE c.tenant_id = $1 AND c.id = ANY($2::bigint[])`,
+    [tenantId, lista]
+  )
+}
+
+/** Todos los ids que coinciden con los filtros — para "seleccionar todos". */
+async function idsFiltrados(tenantId, opciones = {}, tope = 5000) {
+  const { where, params, i } = armarFiltros(tenantId, opciones)
+  params.push(tope)
+  const filas = await db.many(
+    `SELECT c.id FROM chats c JOIN contacts ct ON ct.id = c.contact_id
+      WHERE ${where.join(" AND ")} LIMIT $${i + 1}`,
+    params
+  )
+  return filas.map(f => f.id)
+}
+
+/** CSV con los contactos seleccionados o filtrados. */
+function aCsv(filas) {
+  const cols = ["telefono", "nombre", "zona", "provincia", "pais", "estado",
+                "etiquetas", "ultimo_mensaje", "ultima_respuesta"]
+  const escapar = v => {
+    const s = v === null || v === undefined ? "" : String(v)
+    return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
+  }
+  const lineas = [cols.join(";")]
+  for (const f of filas) {
+    lineas.push([
+      f.phone, f.name || f.push_name || "", f.region || "", f.province || "",
+      f.country || "", f.status || "", (f.tags || []).join("|"),
+      f.last_message_at ? new Date(f.last_message_at).toISOString() : "",
+      f.last_inbound_at ? new Date(f.last_inbound_at).toISOString() : ""
+    ].map(escapar).join(";"))
+  }
+  // BOM para que Excel en Windows respete los acentos.
+  return "﻿" + lineas.join("\r\n")
+}
+
+// ------------------------------------------------------------
+//  NOTAS Y SEGUIMIENTO
+// ------------------------------------------------------------
+async function guardarNotas(tenantId, chatId, notas) {
+  await db.query("UPDATE chats SET notes = $3 WHERE tenant_id = $1 AND id = $2",
+    [tenantId, chatId, String(notas || "").slice(0, 5000)])
+  return obtenerChat(tenantId, chatId)
+}
+
+async function definirSeguimiento(tenantId, chatId, cuando) {
+  await db.query("UPDATE chats SET follow_up_at = $3::timestamptz WHERE tenant_id = $1 AND id = $2",
+    [tenantId, chatId, cuando || null])
+  return obtenerChat(tenantId, chatId)
+}
+
+/** Seguimientos ya vencidos: la lista de "a quién le tengo que escribir hoy". */
+async function seguimientosPendientes(tenantId) {
+  return db.many(
+    `SELECT c.id, c.follow_up_at, ct.name, ct.push_name, ct.phone, ct.region
+       FROM chats c JOIN contacts ct ON ct.id = c.contact_id
+      WHERE c.tenant_id = $1 AND c.follow_up_at IS NOT NULL AND c.follow_up_at <= now()
+      ORDER BY c.follow_up_at ASC LIMIT 100`,
+    [tenantId]
+  )
+}
+
+// ------------------------------------------------------------
+//  RESPUESTAS RÁPIDAS
+// ------------------------------------------------------------
+async function listarRespuestasRapidas(tenantId) {
+  return db.many("SELECT * FROM quick_replies WHERE tenant_id = $1 ORDER BY shortcut", [tenantId])
+}
+
+async function guardarRespuestaRapida(tenantId, { shortcut, body }) {
+  const atajo = String(shortcut || "").trim().replace(/^\//, "").slice(0, 30)
+  if (!atajo) throw new Error("Falta el atajo")
+  if (!String(body || "").trim()) throw new Error("Falta el texto")
+
+  return db.one(
+    `INSERT INTO quick_replies (tenant_id, shortcut, body) VALUES ($1,$2,$3)
+     ON CONFLICT (tenant_id, shortcut) DO UPDATE SET body = EXCLUDED.body
+     RETURNING *`,
+    [tenantId, atajo, body]
+  )
+}
+
+async function borrarRespuestaRapida(tenantId, id) {
+  await db.query("DELETE FROM quick_replies WHERE tenant_id = $1 AND id = $2", [tenantId, id])
+  return { ok: true }
+}
+
+// ------------------------------------------------------------
 //  ETIQUETAS
 // ------------------------------------------------------------
 /** Todas las etiquetas usadas por el cliente, con cuántos chats tiene cada una. */
@@ -282,17 +412,20 @@ async function quitarTag(tenantId, chatId, tag) {
 async function registrarMensaje(tenantId, chatId, datos) {
   const {
     waMsgId = null, direction, type = "chat", body = "",
-    mediaUrl = null, status = null, author = null,
+    mediaUrl = null, mediaMime = null, mediaName = null, quotedId = null,
+    status = null, author = null,
     campaignId = null, sentAt = new Date(), sumarNoLeido = false
   } = datos
 
   const msg = await db.one(
     `INSERT INTO messages
-       (tenant_id, chat_id, wa_msg_id, direction, type, body, media_url, status, author, campaign_id, sent_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       (tenant_id, chat_id, wa_msg_id, direction, type, body, media_url, media_mime, media_name,
+        quoted_id, status, author, campaign_id, sent_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
      ON CONFLICT (tenant_id, wa_msg_id) DO NOTHING
      RETURNING *`,
-    [tenantId, chatId, waMsgId, direction, type, body, mediaUrl, status, author, campaignId, sentAt]
+    [tenantId, chatId, waMsgId, direction, type, body, mediaUrl, mediaMime, mediaName,
+     quotedId, status, author, campaignId, sentAt]
   )
   if (!msg) return null // duplicado: WhatsApp reemitió el mismo id
 
@@ -344,5 +477,8 @@ module.exports = {
   upsertContacto, upsertChat, listarChats, contarChats, facetasPorZona,
   obtenerChat, obtenerChatPorJid, actualizarChat, marcarLeido, marcarTodoLeido,
   listarTags, agregarTag, quitarTag,
+  accionMasiva, chatsPorIds, idsFiltrados, aCsv,
+  guardarNotas, definirSeguimiento, seguimientosPendientes,
+  listarRespuestasRapidas, guardarRespuestaRapida, borrarRespuestaRapida,
   registrarMensaje, listarMensajes, resumenTenant, ORDENES
 }

@@ -1,14 +1,40 @@
-// CRM: listado de chats, conversación y respuesta manual.
+// CRM: listado de chats, conversación, respuesta manual y acciones de WhatsApp.
 const express = require("express")
+const multer  = require("multer")
+
 const db = require("../config/db")
 const { asyncHandler } = require("../middleware/error")
 const { requiereAuth, resolverTenant } = require("../middleware/auth")
 const chatService    = require("../services/chat.service")
 const sessionManager = require("../whatsapp/sessionManager")
+const actions        = require("../whatsapp/actions")
 const { formatearParaMostrar, catalogoAreas } = require("../utils/phone")
 
 const router = express.Router()
 router.use(requiereAuth, resolverTenant)
+
+// 64 MB: el tope práctico de WhatsApp para documentos.
+const subida = multer({ storage: multer.memoryStorage(), limits: { fileSize: 64 * 1024 * 1024 } })
+
+/** Sesión de WhatsApp asociada al chat (o la principal del cliente). */
+async function sesionDeChat(tenantId, chat) {
+  if (chat?.session_id) {
+    const s = await db.one("SELECT * FROM wa_sessions WHERE id = $1", [chat.session_id])
+    if (s) return s
+  }
+  return db.one("SELECT * FROM wa_sessions WHERE tenant_id = $1 ORDER BY id LIMIT 1", [tenantId])
+}
+
+/** Carga el chat y su sesión, o corta con 404. */
+async function chatYSesion(req, res) {
+  const chat = await chatService.obtenerChat(req.tenantId, parseInt(req.params.id, 10))
+  if (!chat) { res.status(404).json({ error: "Chat no encontrado" }); return null }
+
+  const sesion = await sesionDeChat(req.tenantId, chat)
+  if (!sesion) { res.status(400).json({ error: "No hay sesión de WhatsApp configurada" }); return null }
+
+  return { chat, sesion }
+}
 
 function decorar(chat) {
   return {
@@ -63,6 +89,57 @@ router.get("/tags", asyncHandler(async (req, res) => {
 
 router.post("/leer-todo", asyncHandler(async (req, res) => {
   res.json({ ok: true, actualizados: await chatService.marcarTodoLeido(req.tenantId) })
+}))
+
+router.get("/seguimientos", asyncHandler(async (req, res) => {
+  res.json(await chatService.seguimientosPendientes(req.tenantId))
+}))
+
+// ---------- Selección múltiple ----------
+/** Ids de todos los chats que coinciden con los filtros ("seleccionar todos"). */
+router.get("/ids", asyncHandler(async (req, res) => {
+  res.json({ ids: await chatService.idsFiltrados(req.tenantId, filtrosDeQuery(req.query)) })
+}))
+
+router.post("/masivo", asyncHandler(async (req, res) => {
+  const { ids, accion, valor } = req.body
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: "No hay chats seleccionados" })
+  if (ids.length > 5000)                   return res.status(400).json({ error: "Demasiados chats de una vez" })
+
+  res.json(await chatService.accionMasiva(req.tenantId, ids, accion, valor))
+}))
+
+/** JIDs de los chats seleccionados, para difundirles exactamente a ellos. */
+router.post("/exportar-jids", asyncHandler(async (req, res) => {
+  const filas = await chatService.chatsPorIds(req.tenantId, req.body.ids || [])
+  res.json({ jids: filas.map(f => f.jid), total: filas.length })
+}))
+
+/** CSV de la selección, o de todo lo filtrado si no mandan ids. */
+router.post("/exportar", asyncHandler(async (req, res) => {
+  const ids = Array.isArray(req.body.ids) && req.body.ids.length
+    ? req.body.ids
+    : await chatService.idsFiltrados(req.tenantId, filtrosDeQuery(req.body.filtros || {}))
+
+  const filas = await chatService.chatsPorIds(req.tenantId, ids)
+  const fecha = new Date().toISOString().slice(0, 10)
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8")
+  res.setHeader("Content-Disposition", 'attachment; filename="contactos-' + fecha + '.csv"')
+  res.send(chatService.aCsv(filas))
+}))
+
+// ---------- Respuestas rápidas ----------
+router.get("/respuestas-rapidas", asyncHandler(async (req, res) => {
+  res.json(await chatService.listarRespuestasRapidas(req.tenantId))
+}))
+
+router.post("/respuestas-rapidas", asyncHandler(async (req, res) => {
+  res.status(201).json(await chatService.guardarRespuestaRapida(req.tenantId, req.body))
+}))
+
+router.delete("/respuestas-rapidas/:id", asyncHandler(async (req, res) => {
+  res.json(await chatService.borrarRespuestaRapida(req.tenantId, parseInt(req.params.id, 10)))
 }))
 
 router.get("/:id/messages", asyncHandler(async (req, res) => {
@@ -125,6 +202,126 @@ router.post("/:id/tags", asyncHandler(async (req, res) => {
     ? await chatService.quitarTag(req.tenantId, chatId, req.body.quitar)
     : await chatService.agregarTag(req.tenantId, chatId, req.body.agregar)
   res.json(decorar(chat))
+}))
+
+// ============================================================
+//  ARCHIVOS
+// ============================================================
+router.post("/:id/archivo", subida.single("archivo"), asyncHandler(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Falta el archivo" })
+
+  const ctx = await chatYSesion(req, res)
+  if (!ctx) return
+
+  const mensaje = await actions.enviarArchivo(ctx.sesion, ctx.chat, {
+    buffer: req.file.buffer, mime: req.file.mimetype, nombre: req.file.originalname
+  }, {
+    caption:       String(req.body.caption || ""),
+    comoNotaDeVoz: req.body.notaDeVoz === "true" || req.body.notaDeVoz === "1",
+    quotedId:      req.body.quotedId || null
+  }, req.user.name)
+
+  res.status(201).json(mensaje)
+}))
+
+/** Descarga on-demand de un archivo recibido y lo deja cacheado. */
+router.post("/:id/mensajes/:msgId/descargar", asyncHandler(async (req, res) => {
+  const ctx = await chatYSesion(req, res)
+  if (!ctx) return
+
+  const mensaje = await db.one(
+    "SELECT * FROM messages WHERE tenant_id = $1 AND id = $2",
+    [req.tenantId, parseInt(req.params.msgId, 10)]
+  )
+  if (!mensaje) return res.status(404).json({ error: "Mensaje no encontrado" })
+
+  res.json(await actions.descargarMediaDeMensaje(ctx.sesion, mensaje))
+}))
+
+// ============================================================
+//  ACCIONES SOBRE MENSAJES
+//  El id de WhatsApp va en el cuerpo: trae @ y guiones bajos que
+//  ensucian la URL.
+// ============================================================
+router.post("/:id/mensajes/accion", asyncHandler(async (req, res) => {
+  const ctx = await chatYSesion(req, res)
+  if (!ctx) return
+
+  const { accion, waMsgId, texto, emoji, destinoChatId, soloParaMi } = req.body
+  if (!waMsgId && accion !== "responder") return res.status(400).json({ error: "Falta el id del mensaje" })
+
+  switch (accion) {
+    case "responder":
+      if (!String(texto || "").trim()) return res.status(400).json({ error: "El mensaje está vacío" })
+      return res.json(await actions.responderCitando(ctx.sesion, ctx.chat, texto, waMsgId, req.user.name))
+
+    case "reaccionar":
+      return res.json(await actions.reaccionar(ctx.sesion, waMsgId, emoji))
+
+    case "destacar":
+      return res.json(await actions.destacar(ctx.sesion, waMsgId, req.body.valor !== false))
+
+    case "eliminar":
+      return res.json(await actions.eliminarMensaje(ctx.sesion, ctx.chat, waMsgId, !!soloParaMi))
+
+    case "editar":
+      if (!String(texto || "").trim()) return res.status(400).json({ error: "El texto está vacío" })
+      return res.json(await actions.editarMensaje(ctx.sesion, waMsgId, texto))
+
+    case "reenviar": {
+      const destino = await chatService.obtenerChat(req.tenantId, parseInt(destinoChatId, 10))
+      if (!destino) return res.status(404).json({ error: "Chat de destino no encontrado" })
+      return res.json(await actions.reenviar(ctx.sesion, destino, waMsgId))
+    }
+
+    default:
+      return res.status(400).json({ error: "Acción desconocida" })
+  }
+}))
+
+// ============================================================
+//  ACCIONES SOBRE EL CHAT (se replican en el WhatsApp real)
+// ============================================================
+router.post("/:id/accion", asyncHandler(async (req, res) => {
+  const ctx = await chatYSesion(req, res)
+  if (!ctx) return
+  const { accion } = req.body
+
+  switch (accion) {
+    case "archivar":    return res.json(decorar(await actions.archivar(ctx.sesion, ctx.chat, true)))
+    case "desarchivar": return res.json(decorar(await actions.archivar(ctx.sesion, ctx.chat, false)))
+    case "fijar":       return res.json(decorar(await actions.fijarEnWhatsapp(ctx.sesion, ctx.chat, true)))
+    case "desfijar":    return res.json(decorar(await actions.fijarEnWhatsapp(ctx.sesion, ctx.chat, false)))
+    case "silenciar":   return res.json(await actions.silenciar(ctx.sesion, ctx.chat, parseInt(req.body.horas, 10) || 8))
+    case "no-leido":    return res.json(await actions.marcarNoLeidoWa(ctx.sesion, ctx.chat))
+    case "leido":       return res.json(await actions.marcarLeidoWa(ctx.sesion, ctx.chat))
+    case "vaciar":      return res.json(await actions.vaciarChat(ctx.sesion, ctx.chat))
+    case "eliminar":    return res.json(await actions.eliminarChat(ctx.sesion, ctx.chat))
+    case "bloquear":    return res.json(await actions.bloquear(ctx.sesion, ctx.chat, true))
+    case "desbloquear": return res.json(await actions.bloquear(ctx.sesion, ctx.chat, false))
+    case "escribiendo": return res.json(await actions.marcarEstadoEscritura(ctx.sesion, ctx.chat, req.body.estado))
+    default:            return res.status(400).json({ error: "Acción desconocida" })
+  }
+}))
+
+/** Foto de perfil, última vez y si está en línea. */
+router.get("/:id/info", asyncHandler(async (req, res) => {
+  const ctx = await chatYSesion(req, res)
+  if (!ctx) return
+  res.json(await actions.infoContacto(ctx.sesion, ctx.chat))
+}))
+
+// ============================================================
+//  NOTAS Y SEGUIMIENTO
+// ============================================================
+router.post("/:id/notas", asyncHandler(async (req, res) => {
+  res.json(decorar(await chatService.guardarNotas(
+    req.tenantId, parseInt(req.params.id, 10), req.body.notas)))
+}))
+
+router.post("/:id/seguimiento", asyncHandler(async (req, res) => {
+  res.json(decorar(await chatService.definirSeguimiento(
+    req.tenantId, parseInt(req.params.id, 10), req.body.cuando || null)))
 }))
 
 module.exports = router

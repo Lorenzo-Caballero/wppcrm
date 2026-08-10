@@ -39,8 +39,9 @@ const ESTADO_WA = {
   $("#tenant-name").textContent = sesion.tenant?.name || (TENANT_ID ? "Cliente #" + TENANT_ID : "Mi CRM")
 
   conectarSocket()
-  await Promise.all([cargarSesionesWa(), cargarZonas(), cargarTags(), cargarChats()])
+  await Promise.all([cargarSesionesWa(), cargarZonas(), cargarTags(), cargarRapidas(), cargarChats()])
   pintarPlan()
+  avisarSeguimientos()
   refrescarResumen()
   setInterval(refrescarResumen, 60000)
 })()
@@ -71,7 +72,7 @@ function conectarSocket() {
 /* ============================================================
    NAVEGACIÓN
    ============================================================ */
-const VISTAS = ["chats", "difusiones", "plantillas", "conexion", "ajustes"]
+const VISTAS = ["chats", "difusiones", "estados", "plantillas", "rapidas", "conexion", "ajustes"]
 
 $$(".nav-item").forEach(item => {
   item.addEventListener("click", () => {
@@ -84,6 +85,8 @@ $$(".nav-item").forEach(item => {
     if (vista === "difusiones") cargarDifusiones()
     if (vista === "plantillas") cargarPlantillas()
     if (vista === "conexion")   cargarSesionesWa()
+    if (vista === "estados")    cargarEstados()
+    if (vista === "rapidas")    cargarRapidasAdmin()
   })
 })
 
@@ -96,6 +99,19 @@ async function refrescarResumen() {
   try {
     const r = await API.get(u("/chats/resumen"))
     $("#cnt-noleidos").innerHTML = r.no_leidos > 0 ? '<span class="badge">' + r.no_leidos + "</span>" : ""
+  } catch (_) {}
+}
+
+/** Avisa al entrar si hay seguimientos vencidos. */
+async function avisarSeguimientos() {
+  try {
+    const pendientes = await API.get(u("/chats/seguimientos"))
+    if (!pendientes.length) return
+
+    toast("⏰ Tenés " + pendientes.length + " seguimiento(s) para hoy", "warn", 7000)
+    const nombres = pendientes.slice(0, 8)
+      .map(p => "· " + (p.name || p.push_name || p.phone)).join("\n")
+    console.info("Seguimientos pendientes:\n" + nombres)
   } catch (_) {}
 }
 
@@ -305,7 +321,7 @@ function filaChat(c) {
     ? "responde " + haceCuanto(c.last_inbound_at)
     : "nunca respondió"
 
-  return `<div class="chat-item ${activo ? "active" : ""}" data-chat="${c.id}">
+  return `<div class="chat-item ${activo ? "active" : ""} ${estaSeleccionado(c.id) ? "sel" : ""}" data-chat="${c.id}">
     ${avatarHtml(nombre)}
     <div class="grow" style="min-width:0">
       <div class="top">
@@ -372,6 +388,51 @@ function pintarChats({ append = false } = {}) {
   renderizados = chats.length
 }
 
+/* ============================================================
+   SELECCIÓN MÚLTIPLE
+   Click = abrir · Ctrl/⌘+click = alternar · Shift+click = rango
+   ============================================================ */
+const seleccion = new Set()
+let ultimoClickado = null
+
+function estaSeleccionado(id) { return seleccion.has(id) }
+
+function alternarSeleccion(id) {
+  if (seleccion.has(id)) seleccion.delete(id)
+  else seleccion.add(id)
+  refrescarSeleccion()
+}
+
+function seleccionarRango(hasta) {
+  const desde = ultimoClickado
+  if (desde === null) { alternarSeleccion(hasta); return }
+
+  const i1 = chats.findIndex(c => c.id === desde)
+  const i2 = chats.findIndex(c => c.id === hasta)
+  if (i1 < 0 || i2 < 0) { alternarSeleccion(hasta); return }
+
+  for (let i = Math.min(i1, i2); i <= Math.max(i1, i2); i++) seleccion.add(chats[i].id)
+  refrescarSeleccion()
+}
+
+function limpiarSeleccion() {
+  seleccion.clear()
+  ultimoClickado = null
+  refrescarSeleccion()
+}
+
+/** Pinta el estado de selección sin repintar la lista entera. */
+function refrescarSeleccion() {
+  const hay = seleccion.size > 0
+  $("#barra-seleccion").classList.toggle("hidden", !hay)
+  $("#chatlist-body").classList.toggle("seleccionando", hay)
+  $("#sel-contador").textContent = seleccion.size + (seleccion.size === 1 ? " seleccionado" : " seleccionados")
+
+  $$("#chatlist-body .chat-item").forEach(el => {
+    el.classList.toggle("sel", seleccion.has(Number(el.dataset.chat)))
+  })
+}
+
 // Delegación: un solo listener para toda la lista, así el scroll infinito
 // puede agregar filas sin volver a enganchar eventos (ni duplicarlos).
 $("#chatlist-body").addEventListener("click", async e => {
@@ -391,8 +452,166 @@ $("#chatlist-body").addEventListener("click", async e => {
   }
 
   const item = e.target.closest("[data-chat]")
-  if (item) abrirChat(Number(item.dataset.chat))
+  if (!item) return
+  const id = Number(item.dataset.chat)
+
+  if (e.shiftKey)               { e.preventDefault(); seleccionarRango(id); return }
+  if (e.ctrlKey || e.metaKey)   { e.preventDefault(); alternarSeleccion(id); ultimoClickado = id; return }
+
+  // Con una selección abierta, el click simple sigue seleccionando:
+  // así no hay que mantener Ctrl para el tercero, cuarto, etc.
+  if (seleccion.size) { alternarSeleccion(id); ultimoClickado = id; return }
+
+  ultimoClickado = id
+  abrirChat(id)
 })
+
+$("#sel-cancelar").addEventListener("click", limpiarSeleccion)
+
+$("#sel-todos").addEventListener("click", async () => {
+  try {
+    const params = new URLSearchParams()
+    for (const [k, v] of Object.entries(filtrosActuales())) if (v) params.set(k, v)
+
+    // Los ids salen del servidor: la selección abarca TODO lo filtrado,
+    // no solo los chats que se alcanzaron a bajar con el scroll.
+    const r = await API.get(u("/chats/ids?" + params.toString()))
+    r.ids.forEach(id => seleccion.add(Number(id)))
+    refrescarSeleccion()
+    toast(seleccion.size + " chats seleccionados")
+  } catch (e) { toast(e.message, "error") }
+})
+
+$("#sel-acciones").addEventListener("click", e => {
+  const ids = [...seleccion]
+  menuFlotante(e.currentTarget, [
+    { titulo: ids.length + " chats seleccionados" },
+    { icono: "🏷", texto: "Agregar etiqueta",      accion: () => masivoEtiquetar(ids, true) },
+    { icono: "🧹", texto: "Quitar etiqueta",       accion: () => masivoEtiquetar(ids, false) },
+    { separador: true },
+    { icono: "✓✓", texto: "Marcar como leídos",    accion: () => masivo(ids, "leer") },
+    { icono: "📌", texto: "Fijar",                 accion: () => masivo(ids, "fijar") },
+    { icono: "📥", texto: "Archivar",              accion: () => masivo(ids, "archivar") },
+    { icono: "📤", texto: "Desarchivar",           accion: () => masivo(ids, "desarchivar") },
+    { separador: true },
+    { icono: "🔖", texto: "Cambiar estado",        accion: () => masivoEstado(ids) },
+    { icono: "⏰", texto: "Programar seguimiento", accion: () => masivoSeguimiento(ids) },
+    { separador: true },
+    { icono: "📣", texto: "Difundir a estos",      accion: () => difundirSeleccion(ids) },
+    { icono: "⭳",  texto: "Exportar a CSV",        accion: () => exportarCsv(ids) }
+  ])
+})
+
+async function masivo(ids, accion, valor) {
+  try {
+    const r = await API.post(u("/chats/masivo"), { ids, accion, valor })
+    toast(r.afectados + " chats actualizados")
+    limpiarSeleccion()
+    cargarChats(); cargarTags(); refrescarResumen()
+  } catch (e) { toast(e.message, "error") }
+}
+
+async function masivoEtiquetar(ids, agregar) {
+  const existentes = await API.get(u("/chats/tags")).catch(() => [])
+  const sugeridas = existentes.map(t =>
+    `<span class="chip" data-tag="${esc(t.tag)}" style="cursor:pointer">${esc(t.tag)}</span>`).join(" ")
+
+  const { overlay, cerrar } = abrirModal(`
+    <div class="modal-head">
+      <div class="h2">${agregar ? "Agregar" : "Quitar"} etiqueta</div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="muted small">Se aplica a ${ids.length} chats.</div>
+      <div class="field">
+        <label class="label">Etiqueta</label>
+        <input class="input" id="m-tag" maxlength="30" placeholder="cliente frío" autocomplete="off">
+      </div>
+      ${sugeridas ? '<div class="row wrap" style="gap:6px">' + sugeridas + "</div>" : ""}
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-cerrar>Cancelar</button>
+      <button class="btn btn-primary" id="m-ok">Aplicar</button>
+    </div>`)
+
+  const aplicar = valor => {
+    if (!String(valor || "").trim()) return
+    cerrar()
+    masivo(ids, agregar ? "etiquetar" : "desetiquetar", valor.trim())
+  }
+  overlay.querySelector("#m-ok").addEventListener("click", () => aplicar(overlay.querySelector("#m-tag").value))
+  overlay.querySelectorAll("[data-tag]").forEach(el =>
+    el.addEventListener("click", () => aplicar(el.dataset.tag)))
+}
+
+function masivoEstado(ids) {
+  const { overlay, cerrar } = abrirModal(`
+    <div class="modal-head"><div class="h2">Cambiar estado</div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+    <div class="modal-body">
+      <div class="muted small">Se aplica a ${ids.length} chats.</div>
+      <div class="row" style="gap:8px">
+        ${["abierto", "pendiente", "cerrado"].map(s =>
+          `<button class="btn grow" data-estado="${s}">${s}</button>`).join("")}
+      </div>
+    </div>`)
+  overlay.querySelectorAll("[data-estado]").forEach(b => b.addEventListener("click", () => {
+    cerrar(); masivo(ids, "estado", b.dataset.estado)
+  }))
+}
+
+function masivoSeguimiento(ids) {
+  const opciones = [["Mañana", 1], ["En 3 días", 3], ["En 1 semana", 7], ["En 15 días", 15], ["En 30 días", 30]]
+  const { overlay, cerrar } = abrirModal(`
+    <div class="modal-head"><div class="h2">Programar seguimiento</div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+    <div class="modal-body">
+      <div class="muted small">Te va a aparecer como pendiente cuando llegue la fecha. Se aplica a ${ids.length} chats.</div>
+      <div class="col" style="gap:7px">
+        ${opciones.map(([t, d]) => `<button class="btn" data-dias="${d}">${t}</button>`).join("")}
+        <button class="btn btn-danger" data-dias="0">Quitar seguimiento</button>
+      </div>
+    </div>`)
+
+  overlay.querySelectorAll("[data-dias]").forEach(b => b.addEventListener("click", () => {
+    const dias = Number(b.dataset.dias)
+    cerrar()
+    masivo(ids, "seguimiento", dias ? new Date(Date.now() + dias * 86400000).toISOString() : null)
+  }))
+}
+
+async function difundirSeleccion(ids) {
+  try {
+    // Difundimos a los JID exactos elegidos, no a un criterio.
+    const filas = await API.post(u("/chats/exportar-jids"), { ids }).catch(() => null)
+    limpiarSeleccion()
+    $$(".nav-item").forEach(i => i.classList.toggle("active", i.dataset.vista === "difusiones"))
+    VISTAS.forEach(v => $("#vista-" + v).classList.toggle("hidden", v !== "difusiones"))
+    abrirAsistenteDifusion({ jids: filas?.jids || [] })
+  } catch (e) { toast(e.message, "error") }
+}
+
+async function exportarCsv(ids) {
+  try {
+    const res = await fetch("/api" + u("/chats/exportar"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(ids?.length ? { ids } : { filtros: filtrosActuales() })
+    })
+    if (!res.ok) throw new Error("No se pudo exportar")
+
+    const blob = await res.blob()
+    const enlace = document.createElement("a")
+    enlace.href = URL.createObjectURL(blob)
+    enlace.download = "contactos-" + new Date().toISOString().slice(0, 10) + ".csv"
+    enlace.click()
+    URL.revokeObjectURL(enlace.href)
+    toast("CSV descargado")
+  } catch (e) { toast(e.message, "error") }
+}
+
+$("#btn-exportar").addEventListener("click", () => exportarCsv([...seleccion]))
 
 // Scroll infinito: al acercarse al final, pide el tramo siguiente.
 $("#chatlist-body").addEventListener("scroll", e => {
@@ -468,7 +687,10 @@ async function abrirChat(chatId) {
   } catch (e) { toast(e.message, "error") }
 }
 
+let mensajesCargados = []
+
 function pintarMensajes(mensajes) {
+  mensajesCargados = mensajes
   const cont = $("#conv-body")
   let ultimoDia = ""
   const partes = []
@@ -485,24 +707,232 @@ function pintarMensajes(mensajes) {
   cont.scrollTop = cont.scrollHeight
 }
 
+/** Bloque multimedia de una burbuja (imagen, video, audio o documento). */
+function bloqueMedia(m) {
+  const esMedia = ["image", "video", "audio", "ptt", "document", "sticker"].includes(m.type)
+  if (!esMedia) return ""
+
+  // Todavía no lo bajamos de WhatsApp: se descarga al tocarlo.
+  if (!m.media_url) {
+    const ICONOS = { image: "📷", video: "🎥", audio: "🎤", ptt: "🎤", document: "📄", sticker: "🩹" }
+    return `<button class="doc" data-descargar="${m.id}" style="border:0;width:100%;cursor:pointer">
+              <span class="ico">${ICONOS[m.type] || "📎"}</span>
+              <span class="grow" style="text-align:left">
+                <div style="font-size:12.5px">${esc(m.media_name || "Archivo")}</div>
+                <div class="tiny dim">Tocá para descargar</div>
+              </span>
+            </button>`
+  }
+
+  const url = m.media_url
+  if (m.type === "image" || m.type === "sticker") {
+    return `<div class="media"><img src="${esc(url)}" loading="lazy" data-ver="${esc(url)}" alt=""></div>`
+  }
+  if (m.type === "video") {
+    return `<div class="media"><video src="${esc(url)}" controls preload="metadata"></video></div>`
+  }
+  if (m.type === "audio" || m.type === "ptt") {
+    return `<div class="media"><audio src="${esc(url)}" controls preload="none"></audio></div>`
+  }
+  return `<a class="doc" href="${esc(url)}?descargar=1&nombre=${encodeURIComponent(m.media_name || "archivo")}" target="_blank" rel="noopener">
+            <span class="ico">📄</span>
+            <span class="grow">
+              <div style="font-size:12.5px">${esc(m.media_name || "Documento")}</div>
+              <div class="tiny dim">Descargar</div>
+            </span>
+          </a>`
+}
+
 function burbuja(m) {
+  if (m.deleted) {
+    return `<div class="bubble ${m.direction === "out" ? "out" : "in"} borrado">
+              🚫 Mensaje eliminado
+              <div class="stamp">${esc(horaCorta(m.sent_at))}</div>
+            </div>`
+  }
+
   const marca = m.direction === "out"
     ? '<span title="' + esc(m.status || "") + '">' +
       (m.status === "read" ? "✓✓" : m.status === "delivered" ? "✓✓" : "✓") + "</span>"
     : ""
   const autor = m.direction === "out" && m.author
     ? '<div class="author">' + esc(m.author) + "</div>" : ""
+  const citado = m.quoted_id
+    ? '<div class="citado">' + esc(textoDeMensaje(m.quoted_id) || "Mensaje citado") + "</div>" : ""
+  const reaccion = m.reaction
+    ? '<span class="reaccion">' + esc(m.reaction) + "</span>" : ""
+  const estrella = m.starred ? " ⭐" : ""
 
-  return '<div class="bubble ' + (m.direction === "out" ? "out" : "in") + '" data-msg="' + (m.wa_msg_id || "") + '">' +
-    autor +
-    '<div>' + formatoWhatsapp(m.body || "") + "</div>" +
-    '<div class="stamp">' + esc(horaCorta(m.sent_at)) + " " + marca + "</div>" +
-    "</div>"
+  return `<div class="bubble ${m.direction === "out" ? "out" : "in"}"
+               data-msg="${esc(m.wa_msg_id || "")}" data-id="${m.id}">
+    <button class="acciones" data-menu-msg="${m.id}" title="Acciones">⋮</button>
+    ${autor}${citado}${bloqueMedia(m)}
+    ${m.body ? "<div>" + formatoWhatsapp(m.body) + "</div>" : ""}
+    <div class="stamp">${esc(horaCorta(m.sent_at))}${estrella} ${marca}</div>
+    ${reaccion}
+  </div>`
+}
+
+/** Busca el texto de un mensaje ya cargado, para mostrar la cita. */
+function textoDeMensaje(waMsgId) {
+  const m = mensajesCargados.find(x => x.wa_msg_id === waMsgId)
+  return m ? (m.body || "[" + m.type + "]").slice(0, 120) : null
 }
 
 $("#volver-lista").addEventListener("click", () => {
   $("#chatlist").classList.remove("hide-mobile")
   $("#volver-lista").classList.add("hidden")
+})
+
+/* ---------------- Acciones sobre un mensaje ---------------- */
+$("#conv-body").addEventListener("click", async e => {
+  // Descargar un archivo recibido que todavía no bajamos
+  const desc = e.target.closest("[data-descargar]")
+  if (desc) {
+    desc.disabled = true
+    try {
+      const m = await API.post(u("/chats/" + chatActivo.id + "/mensajes/" + desc.dataset.descargar + "/descargar"))
+      const i = mensajesCargados.findIndex(x => x.id === m.id)
+      if (i >= 0) { mensajesCargados[i] = m; pintarMensajes(mensajesCargados) }
+    } catch (err) { toast(err.message, "error"); desc.disabled = false }
+    return
+  }
+
+  // Abrir imagen en grande
+  const img = e.target.closest("[data-ver]")
+  if (img) {
+    abrirModal(`<div class="modal-body" style="padding:0">
+        <img src="${esc(img.dataset.ver)}" style="width:100%;border-radius:var(--r-lg);display:block">
+      </div>`, { ancho: "modal-lg" })
+    return
+  }
+
+  const btn = e.target.closest("[data-menu-msg]")
+  if (btn) menuDeMensaje(btn, Number(btn.dataset.menuMsg))
+})
+
+function menuDeMensaje(ancla, msgId) {
+  const m = mensajesCargados.find(x => x.id === msgId)
+  if (!m) return
+  const waId = m.wa_msg_id
+
+  const accion = async (accion, extra = {}) => {
+    try {
+      await API.post(u("/chats/" + chatActivo.id + "/mensajes/accion"), { accion, waMsgId: waId, ...extra })
+      abrirChat(chatActivo.id)
+    } catch (e) { toast(e.message, "error") }
+  }
+
+  const items = [
+    { icono: "↩", texto: "Responder", accion: () => activarRespuesta(m) },
+    { icono: "😀", texto: "Reaccionar", accion: () => elegirReaccion(waId) },
+    { icono: "📋", texto: "Copiar texto", accion: () => {
+        navigator.clipboard.writeText(m.body || "").then(() => toast("Copiado"))
+      } },
+    { icono: "➡", texto: "Reenviar a…", accion: () => elegirDestinoReenvio(waId) },
+    { icono: m.starred ? "☆" : "⭐", texto: m.starred ? "Quitar destacado" : "Destacar",
+      accion: () => accion("destacar", { valor: !m.starred }) }
+  ]
+
+  if (m.direction === "out") {
+    items.push({ separador: true })
+    items.push({ icono: "✏", texto: "Editar", accion: () => editarMensaje(m) })
+  }
+
+  items.push({ separador: true })
+  items.push({ icono: "🗑", texto: "Eliminar para todos", peligro: true,
+               accion: async () => {
+                 if (await confirmar("Eliminar este mensaje para todos?", "Eliminar")) accion("eliminar")
+               } })
+
+  if (!waId) return toast("Este mensaje no tiene id de WhatsApp", "warn")
+  menuFlotante(ancla, items)
+}
+
+function elegirReaccion(waId) {
+  const EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "✅"]
+  const { overlay, cerrar } = abrirModal(`
+    <div class="modal-head"><div class="h2">Reaccionar</div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+    <div class="modal-body">
+      <div class="row wrap" style="gap:10px;font-size:28px">
+        ${EMOJIS.map(e2 => `<button class="btn" data-emoji="${e2}" style="font-size:26px;padding:8px 12px">${e2}</button>`).join("")}
+      </div>
+      <button class="btn btn-sm" data-emoji="">Quitar reacción</button>
+    </div>`)
+
+  overlay.querySelectorAll("[data-emoji]").forEach(b => b.addEventListener("click", async () => {
+    cerrar()
+    try {
+      await API.post(u("/chats/" + chatActivo.id + "/mensajes/accion"),
+        { accion: "reaccionar", waMsgId: waId, emoji: b.dataset.emoji })
+      abrirChat(chatActivo.id)
+    } catch (e) { toast(e.message, "error") }
+  }))
+}
+
+async function elegirDestinoReenvio(waId) {
+  const r = await API.get(u("/chats?limit=60"))
+  const { overlay, cerrar } = abrirModal(`
+    <div class="modal-head"><div class="h2">Reenviar a</div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+    <div class="modal-body" style="max-height:60vh;overflow-y:auto;padding:0">
+      ${(r.chats || []).map(c => `
+        <div class="chat-item" data-destino="${c.id}">
+          ${avatarHtml(c.display_name, "avatar-sm")}
+          <div class="grow truncate">
+            <div class="nm truncate">${esc(c.display_name)}</div>
+            <div class="tiny dim">${esc(c.phone_pretty)}</div>
+          </div>
+        </div>`).join("")}
+    </div>`)
+
+  overlay.querySelectorAll("[data-destino]").forEach(el => el.addEventListener("click", async () => {
+    cerrar()
+    try {
+      await API.post(u("/chats/" + chatActivo.id + "/mensajes/accion"),
+        { accion: "reenviar", waMsgId: waId, destinoChatId: el.dataset.destino })
+      toast("Mensaje reenviado")
+    } catch (e) { toast(e.message, "error") }
+  }))
+}
+
+function editarMensaje(m) {
+  const { overlay, cerrar } = abrirModal(`
+    <div class="modal-head"><div class="h2">Editar mensaje</div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+    <div class="modal-body">
+      <textarea class="textarea" id="ed-texto">${esc(m.body || "")}</textarea>
+      <div class="hint">WhatsApp solo permite editar dentro de los primeros 15 minutos.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-cerrar>Cancelar</button>
+      <button class="btn btn-primary" id="ed-ok">Guardar</button>
+    </div>`)
+
+  overlay.querySelector("#ed-ok").addEventListener("click", async () => {
+    try {
+      await API.post(u("/chats/" + chatActivo.id + "/mensajes/accion"),
+        { accion: "editar", waMsgId: m.wa_msg_id, texto: overlay.querySelector("#ed-texto").value })
+      cerrar()
+      abrirChat(chatActivo.id)
+    } catch (e) { toast(e.message, "error") }
+  })
+}
+
+/* ---------------- Responder citando ---------------- */
+let respondiendoA = null
+
+function activarRespuesta(m) {
+  respondiendoA = m
+  $("#responder-texto").textContent = (m.body || "[" + m.type + "]").slice(0, 120)
+  $("#responder-a").classList.remove("hidden")
+  $("#composer").focus()
+}
+
+$("#responder-cancelar").addEventListener("click", () => {
+  respondiendoA = null
+  $("#responder-a").classList.add("hidden")
 })
 
 /* ---------------- Enviar ---------------- */
@@ -511,10 +941,34 @@ const composer = $("#composer")
 composer.addEventListener("input", () => {
   composer.style.height = "auto"
   composer.style.height = Math.min(composer.scrollHeight, 170) + "px"
+  filtrarRapidas()
 })
 
 composer.addEventListener("keydown", e => {
+  const abiertas = !$("#lista-rapidas").classList.contains("hidden")
+
+  // Con la lista de respuestas rápidas abierta, las flechas y el Enter
+  // navegan la lista en vez de mover el cursor o enviar.
+  if (abiertas) {
+    const encontradas = filtrarRapidas() || []
+    if (e.key === "ArrowDown") { e.preventDefault(); rapidaMarcada = (rapidaMarcada + 1) % encontradas.length; filtrarRapidas(); return }
+    if (e.key === "ArrowUp")   { e.preventDefault(); rapidaMarcada = (rapidaMarcada - 1 + encontradas.length) % encontradas.length; filtrarRapidas(); return }
+    if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault()
+      if (encontradas[rapidaMarcada]) insertarRapida(encontradas[rapidaMarcada])
+      return
+    }
+    if (e.key === "Escape") { $("#lista-rapidas").classList.add("hidden"); return }
+  }
+
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviarMensaje() }
+  if (e.key === "Escape" && respondiendoA) $("#responder-cancelar").click()
+})
+
+// Pegar una imagen desde el portapapeles la manda como archivo.
+composer.addEventListener("paste", e => {
+  const archivos = [...(e.clipboardData?.files || [])]
+  if (archivos.length && chatActivo) { e.preventDefault(); confirmarEnvioArchivos(archivos) }
 })
 $("#enviar").addEventListener("click", enviarMensaje)
 
@@ -525,20 +979,143 @@ async function enviarMensaje() {
   const boton = $("#enviar")
   boton.disabled = true
   try {
-    const m = await API.post(u("/chats/" + chatActivo.id + "/messages"), { texto })
+    let m
+    if (respondiendoA?.wa_msg_id) {
+      m = await API.post(u("/chats/" + chatActivo.id + "/mensajes/accion"),
+        { accion: "responder", waMsgId: respondiendoA.wa_msg_id, texto })
+      respondiendoA = null
+      $("#responder-a").classList.add("hidden")
+    } else {
+      m = await API.post(u("/chats/" + chatActivo.id + "/messages"), { texto })
+    }
+
     composer.value = ""
     composer.style.height = "auto"
     if (m) {
+      mensajesCargados.push(m)
       $("#conv-body").insertAdjacentHTML("beforeend", burbuja(m))
       $("#conv-body").scrollTop = $("#conv-body").scrollHeight
     }
-    cargarChats()
+    recargarChatsPronto(300)
   } catch (e) {
     toast(e.message, "error")
   } finally {
     boton.disabled = false
     composer.focus()
   }
+}
+
+/* ============================================================
+   ADJUNTOS
+   ============================================================ */
+$("#btn-adjuntar").addEventListener("click", () => $("#file-input").click())
+
+$("#file-input").addEventListener("change", e => {
+  const archivos = [...e.target.files]
+  e.target.value = ""                    // permite volver a elegir el mismo archivo
+  if (archivos.length) confirmarEnvioArchivos(archivos)
+})
+
+// Arrastrar y soltar sobre la conversación
+const conv = $("#conv")
+let contadorArrastre = 0   // dragenter/dragleave se disparan también en los hijos
+
+conv.addEventListener("dragenter", e => {
+  if (!chatActivo || !e.dataTransfer?.types?.includes("Files")) return
+  e.preventDefault(); contadorArrastre++
+  $("#drop-zona").classList.remove("hidden")
+})
+conv.addEventListener("dragover", e => { if (chatActivo) e.preventDefault() })
+conv.addEventListener("dragleave", () => {
+  if (--contadorArrastre <= 0) { contadorArrastre = 0; $("#drop-zona").classList.add("hidden") }
+})
+conv.addEventListener("drop", e => {
+  if (!chatActivo) return
+  e.preventDefault()
+  contadorArrastre = 0
+  $("#drop-zona").classList.add("hidden")
+  const archivos = [...(e.dataTransfer?.files || [])]
+  if (archivos.length) confirmarEnvioArchivos(archivos)
+})
+
+function confirmarEnvioArchivos(archivos) {
+  const primero = archivos[0]
+  const esImagen = primero.type.startsWith("image/")
+  const esAudio  = primero.type.startsWith("audio/")
+
+  const { overlay, cerrar } = abrirModal(`
+    <div class="modal-head">
+      <div>
+        <div class="h2">Enviar ${archivos.length > 1 ? archivos.length + " archivos" : "archivo"}</div>
+        <div class="tiny dim truncate">${esc(archivos.map(a => a.name).join(", "))}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="ad-preview"></div>
+      <div class="field">
+        <label class="label">Mensaje (opcional)</label>
+        <input class="input" id="ad-caption" placeholder="Texto que acompaña al archivo" autocomplete="off">
+      </div>
+      ${esAudio ? `<label class="switch"><input type="checkbox" id="ad-ptt" checked><span class="track"></span>
+        <span class="small">Enviar como nota de voz</span></label>` : ""}
+      <div class="tiny dim">Tamaño total: ${(archivos.reduce((s, a) => s + a.size, 0) / 1048576).toFixed(1)} MB (máx. 64 MB por archivo)</div>
+      <div class="bar hidden" id="ad-bar"><i style="width:0%"></i></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-cerrar>Cancelar</button>
+      <button class="btn btn-primary" id="ad-enviar">Enviar</button>
+    </div>`)
+
+  if (esImagen) {
+    const url = URL.createObjectURL(primero)
+    overlay.querySelector("#ad-preview").innerHTML =
+      `<img src="${url}" style="max-width:100%;max-height:240px;border-radius:var(--r);display:block;margin:0 auto">`
+  }
+
+  overlay.querySelector("#ad-enviar").addEventListener("click", async () => {
+    const boton  = overlay.querySelector("#ad-enviar")
+    const barra  = overlay.querySelector("#ad-bar")
+    const caption= overlay.querySelector("#ad-caption").value
+    const ptt    = overlay.querySelector("#ad-ptt")?.checked
+
+    boton.disabled = true
+    barra.classList.remove("hidden")
+
+    let enviados = 0
+    for (const archivo of archivos) {
+      try {
+        await subirArchivo(archivo, caption, ptt)
+        enviados++
+      } catch (e) {
+        toast("Falló " + archivo.name + ": " + e.message, "error")
+      }
+      barra.querySelector("i").style.width = Math.round(enviados / archivos.length * 100) + "%"
+    }
+
+    cerrar()
+    if (enviados) {
+      toast(enviados + (enviados === 1 ? " archivo enviado" : " archivos enviados"))
+      abrirChat(chatActivo.id)
+    }
+  })
+}
+
+function subirArchivo(archivo, caption, notaDeVoz) {
+  const datos = new FormData()
+  datos.append("archivo", archivo)
+  datos.append("caption", caption || "")
+  if (notaDeVoz) datos.append("notaDeVoz", "true")
+  if (respondiendoA?.wa_msg_id) datos.append("quotedId", respondiendoA.wa_msg_id)
+
+  // FormData no se manda por API.req: fetch tiene que poner el boundary solo.
+  return fetch("/api" + u("/chats/" + chatActivo.id + "/archivo"), {
+    method: "POST", body: datos, credentials: "same-origin"
+  }).then(async res => {
+    const j = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(j.error || "Error " + res.status)
+    return j
+  })
 }
 
 $("#conv-estado").addEventListener("change", async e => {
@@ -627,6 +1204,325 @@ $("#conv-tags").addEventListener("click", async () => {
   overlay.querySelectorAll("[data-sug]").forEach(el =>
     el.addEventListener("click", () => agregar(el.dataset.sug)))
 })
+
+/* ============================================================
+   ACCIONES DEL CHAT (se replican en el WhatsApp real)
+   ============================================================ */
+$("#conv-menu").addEventListener("click", e => {
+  if (!chatActivo) return
+
+  const accion = async (accion, extra = {}) => {
+    try {
+      await API.post(u("/chats/" + chatActivo.id + "/accion"), { accion, ...extra })
+      toast("Listo")
+      cargarChats()
+    } catch (err) { toast(err.message, "error") }
+  }
+
+  menuFlotante(e.currentTarget, [
+    { titulo: "En WhatsApp" },
+    { icono: "📥", texto: chatActivo.archived ? "Desarchivar" : "Archivar",
+      accion: () => accion(chatActivo.archived ? "desarchivar" : "archivar") },
+    { icono: "🔕", texto: "Silenciar 8 horas",  accion: () => accion("silenciar", { horas: 8 }) },
+    { icono: "🔕", texto: "Silenciar 1 semana", accion: () => accion("silenciar", { horas: 168 }) },
+    { icono: "🔵", texto: "Marcar como no leído", accion: () => accion("no-leido") },
+    { separador: true },
+    { titulo: "CRM" },
+    { icono: "🗒", texto: "Notas internas",       accion: () => abrirNotas() },
+    { icono: "⏰", texto: "Programar seguimiento", accion: () => abrirSeguimiento() },
+    { icono: "👤", texto: "Info del contacto",     accion: () => verInfoContacto() },
+    { separador: true },
+    { icono: "🧹", texto: "Vaciar conversación", peligro: true, accion: async () => {
+        if (await confirmar("Se borran todos los mensajes de este chat, también en tu WhatsApp. Los destacados se conservan.", "Vaciar"))
+          accion("vaciar")
+      } },
+    { icono: "⛔", texto: "Bloquear contacto", peligro: true, accion: async () => {
+        if (await confirmar("Bloquear a este contacto en WhatsApp?", "Bloquear")) accion("bloquear")
+      } },
+    { icono: "🗑", texto: "Eliminar chat", peligro: true, accion: async () => {
+        if (await confirmar("Se elimina la conversación del CRM y de tu WhatsApp. No se puede deshacer.", "Eliminar")) {
+          await accion("eliminar")
+          chatActivo = null
+          $("#conv-activa").classList.add("hidden")
+          $("#conv-vacio").classList.remove("hidden")
+        }
+      } }
+  ])
+})
+
+async function verInfoContacto() {
+  const { overlay } = abrirModal(`
+    <div class="modal-head"><div class="h2">${esc(chatActivo.display_name)}</div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+    <div class="modal-body" id="info-cuerpo"><div class="muted">Consultando a WhatsApp…</div></div>`)
+
+  try {
+    const info = await API.get(u("/chats/" + chatActivo.id + "/info"))
+    overlay.querySelector("#info-cuerpo").innerHTML = `
+      ${info.foto ? `<img src="${esc(info.foto)}" style="width:110px;height:110px;border-radius:50%;margin:0 auto;display:block">` : ""}
+      <div class="col" style="gap:9px;margin-top:14px">
+        <div class="spread"><span class="dim small">Teléfono</span><span class="mono">${esc(chatActivo.phone_pretty)}</span></div>
+        <div class="spread"><span class="dim small">Zona</span><span>${esc(chatActivo.zona || "—")}</span></div>
+        <div class="spread"><span class="dim small">En línea</span><span>${info.enLinea ? "sí" : "no"}</span></div>
+        <div class="spread"><span class="dim small">Última vez</span><span>${info.ultimaVez ? esc(haceCuanto(info.ultimaVez)) : "oculta"}</span></div>
+        <div class="spread"><span class="dim small">Te escribió</span><span>${chatActivo.last_inbound_at ? esc(haceCuanto(chatActivo.last_inbound_at)) : "nunca"}</span></div>
+      </div>
+      <div class="hint" style="margin-top:12px">La foto y la última conexión dependen de la privacidad del contacto.</div>`
+  } catch (e) {
+    overlay.querySelector("#info-cuerpo").innerHTML = '<div style="color:#fda4af">' + esc(e.message) + "</div>"
+  }
+}
+
+/* ---------------- Notas internas ---------------- */
+$("#conv-notas").addEventListener("click", () => abrirNotas())
+
+function abrirNotas() {
+  if (!chatActivo) return
+  const { overlay, cerrar } = abrirModal(`
+    <div class="modal-head">
+      <div><div class="h2">Notas internas</div>
+        <div class="tiny dim">${esc(chatActivo.display_name)} · no las ve el cliente</div></div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button>
+    </div>
+    <div class="modal-body">
+      <textarea class="textarea" id="nt-texto" style="min-height:200px"
+        placeholder="Qué pidió, qué se le cotizó, cuándo volver a contactarlo…">${esc(chatActivo.notes || "")}</textarea>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-cerrar>Cancelar</button>
+      <button class="btn btn-primary" id="nt-ok">Guardar</button>
+    </div>`)
+
+  overlay.querySelector("#nt-ok").addEventListener("click", async () => {
+    try {
+      const c = await API.post(u("/chats/" + chatActivo.id + "/notas"),
+        { notas: overlay.querySelector("#nt-texto").value })
+      chatActivo.notes = c.notes
+      cerrar()
+      toast("Notas guardadas")
+    } catch (e) { toast(e.message, "error") }
+  })
+}
+
+function abrirSeguimiento() {
+  if (!chatActivo) return
+  const opciones = [["Mañana", 1], ["En 3 días", 3], ["En 1 semana", 7], ["En 15 días", 15], ["En 30 días", 30]]
+  const { overlay, cerrar } = abrirModal(`
+    <div class="modal-head"><div class="h2">Programar seguimiento</div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+    <div class="modal-body">
+      ${chatActivo.follow_up_at
+        ? '<div class="chip chip-warn">Ya tiene uno para el ' + esc(new Date(chatActivo.follow_up_at).toLocaleDateString("es-AR")) + "</div>"
+        : ""}
+      <div class="col" style="gap:7px">
+        ${opciones.map(([t, d]) => `<button class="btn" data-dias="${d}">${t}</button>`).join("")}
+        <button class="btn btn-danger" data-dias="0">Quitar seguimiento</button>
+      </div>
+    </div>`)
+
+  overlay.querySelectorAll("[data-dias]").forEach(b => b.addEventListener("click", async () => {
+    const dias = Number(b.dataset.dias)
+    try {
+      const c = await API.post(u("/chats/" + chatActivo.id + "/seguimiento"),
+        { cuando: dias ? new Date(Date.now() + dias * 86400000).toISOString() : null })
+      chatActivo.follow_up_at = c.follow_up_at
+      cerrar()
+      toast(dias ? "Seguimiento programado" : "Seguimiento quitado")
+    } catch (e) { toast(e.message, "error") }
+  }))
+}
+
+/* ============================================================
+   RESPUESTAS RÁPIDAS (se insertan escribiendo /atajo)
+   ============================================================ */
+let rapidas = []
+let rapidaMarcada = 0
+
+async function cargarRapidas() {
+  try { rapidas = await API.get(u("/chats/respuestas-rapidas")) } catch (_) { rapidas = [] }
+}
+
+function filtrarRapidas() {
+  const texto = composer.value
+  const m = texto.match(/(?:^|\s)\/([\w-]*)$/)   // solo mientras se está tipeando el atajo
+  if (!m) { $("#lista-rapidas").classList.add("hidden"); return null }
+
+  const busq = m[1].toLowerCase()
+  const encontradas = rapidas.filter(r => r.shortcut.toLowerCase().startsWith(busq)).slice(0, 6)
+  if (!encontradas.length) { $("#lista-rapidas").classList.add("hidden"); return null }
+
+  rapidaMarcada = Math.min(rapidaMarcada, encontradas.length - 1)
+  $("#lista-rapidas").innerHTML = encontradas.map((r, i) =>
+    `<div class="item ${i === rapidaMarcada ? "activo" : ""}" data-rapida="${r.id}">
+       <div class="atajo">/${esc(r.shortcut)}</div>
+       <div class="cuerpo">${esc(r.body)}</div>
+     </div>`).join("")
+  $("#lista-rapidas").classList.remove("hidden")
+  return encontradas
+}
+
+function insertarRapida(r) {
+  composer.value = composer.value.replace(/(?:^|\s)\/[\w-]*$/, match => (match.startsWith(" ") ? " " : "") + r.body)
+  $("#lista-rapidas").classList.add("hidden")
+  composer.focus()
+  composer.dispatchEvent(new Event("input"))
+}
+
+$("#lista-rapidas").addEventListener("click", e => {
+  const el = e.target.closest("[data-rapida]")
+  if (!el) return
+  const r = rapidas.find(x => x.id === Number(el.dataset.rapida))
+  if (r) insertarRapida(r)
+})
+
+/* ---------------- Administración de respuestas rápidas ---------------- */
+async function cargarRapidasAdmin() {
+  await cargarRapidas()
+  $("#lista-rapidas-admin").innerHTML = rapidas.length
+    ? rapidas.map(r => `<div class="card col" style="gap:9px">
+        <div class="spread">
+          <span class="atajo" style="color:var(--acc);font-weight:650">/${esc(r.shortcut)}</span>
+          <button class="btn btn-sm btn-danger" data-del-rapida="${r.id}">🗑</button>
+        </div>
+        <div class="variant">${esc(r.body)}</div>
+      </div>`).join("")
+    : '<div class="card muted">Todavía no tenés respuestas rápidas. Creá una y usala escribiendo <code>/atajo</code> en cualquier chat.</div>'
+
+  $$("[data-del-rapida]").forEach(b => b.addEventListener("click", async () => {
+    if (!await confirmar("Eliminar esta respuesta rápida?", "Eliminar")) return
+    await API.del(u("/chats/respuestas-rapidas/" + b.dataset.delRapida))
+    cargarRapidasAdmin()
+  }))
+}
+
+$("#btn-nueva-rapida").addEventListener("click", () => {
+  const { overlay, cerrar } = abrirModal(`
+    <div class="modal-head"><div class="h2">Nueva respuesta rápida</div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+    <div class="modal-body">
+      <div class="field">
+        <label class="label">Atajo</label>
+        <div class="row"><span class="dim">/</span><input class="input" id="rp-atajo" maxlength="30" placeholder="precios" autocomplete="off"></div>
+        <div class="hint">En el chat escribís <code>/precios</code> y se reemplaza por el texto.</div>
+      </div>
+      <div class="field">
+        <label class="label">Texto</label>
+        <textarea class="textarea" id="rp-body" placeholder="Nuestros precios arrancan en…"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-cerrar>Cancelar</button>
+      <button class="btn btn-primary" id="rp-ok">Guardar</button>
+    </div>`)
+
+  overlay.querySelector("#rp-ok").addEventListener("click", async () => {
+    try {
+      await API.post(u("/chats/respuestas-rapidas"), {
+        shortcut: overlay.querySelector("#rp-atajo").value,
+        body:     overlay.querySelector("#rp-body").value
+      })
+      cerrar()
+      toast("Respuesta rápida guardada")
+      cargarRapidasAdmin()
+    } catch (e) { toast(e.message, "error") }
+  })
+})
+
+/* ============================================================
+   ESTADOS (historias)
+   ============================================================ */
+const COLORES_ESTADO = ["#0f5c45", "#075e54", "#1f2937", "#7c3aed", "#dc2626",
+                        "#ea580c", "#0284c7", "#be185d", "#4d7c0f", "#0f172a"]
+let colorEstado = COLORES_ESTADO[0]
+
+function pintarColoresEstado() {
+  $("#est-colores").innerHTML = COLORES_ESTADO.map(c =>
+    `<div class="color-chip ${c === colorEstado ? "activo" : ""}" data-color="${c}" style="background:${c}"></div>`
+  ).join("")
+  $$("#est-colores [data-color]").forEach(el => el.addEventListener("click", () => {
+    colorEstado = el.dataset.color
+    pintarColoresEstado()
+  }))
+}
+
+$$("[data-tipo-estado]").forEach(b => b.addEventListener("click", () => {
+  const tipo = b.dataset.tipoEstado
+  $$("[data-tipo-estado]").forEach(x => x.classList.toggle("btn-primary", x === b))
+  $("#estado-texto").classList.toggle("hidden", tipo !== "texto")
+  $("#estado-media").classList.toggle("hidden", tipo !== "media")
+}))
+
+$("#est-archivo").addEventListener("change", e => {
+  const f = e.target.files[0]
+  if (!f) { $("#est-preview").innerHTML = ""; return }
+  const url = URL.createObjectURL(f)
+  $("#est-preview").innerHTML = f.type.startsWith("video/")
+    ? `<video src="${url}" controls style="max-width:100%;border-radius:var(--r)"></video>`
+    : `<img src="${url}" style="max-width:100%;border-radius:var(--r)">`
+})
+
+$("#est-publicar").addEventListener("click", async () => {
+  const boton = $("#est-publicar")
+  const esTexto = !$("#estado-texto").classList.contains("hidden")
+  boton.disabled = true
+  boton.textContent = "Publicando…"
+
+  try {
+    if (esTexto) {
+      const texto = $("#est-texto").value.trim()
+      if (!texto) throw new Error("Escribí algo primero")
+      await API.post(u("/status/texto"), { texto, color: colorEstado, fuente: $("#est-fuente").value })
+      $("#est-texto").value = ""
+    } else {
+      const archivo = $("#est-archivo").files[0]
+      if (!archivo) throw new Error("Elegí una imagen o un video")
+
+      const datos = new FormData()
+      datos.append("archivo", archivo)
+      datos.append("caption", $("#est-caption").value || "")
+      const res = await fetch("/api" + u("/status/media"),
+        { method: "POST", body: datos, credentials: "same-origin" })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j.error || "Error " + res.status)
+
+      $("#est-archivo").value = ""
+      $("#est-caption").value = ""
+      $("#est-preview").innerHTML = ""
+    }
+    toast("Estado publicado 📸")
+    cargarEstados()
+  } catch (e) {
+    toast(e.message, "error")
+  } finally {
+    boton.disabled = false
+    boton.textContent = "Publicar estado"
+  }
+})
+
+async function cargarEstados() {
+  pintarColoresEstado()
+  try {
+    const lista = await API.get(u("/status"))
+    $("#est-historial").innerHTML = lista.length
+      ? lista.map(s => {
+          if (s.tipo === "texto") {
+            const op = s.opciones || {}
+            return `<div class="estado-preview" style="background:${esc(op.backgroundColor || "#0f5c45")};font-size:15px">
+                      ${esc(s.contenido || "")}
+                    </div>
+                    <div class="tiny dim" style="margin:-4px 0 6px">${esc(haceCuanto(s.created_at))}</div>`
+          }
+          return `<div class="col" style="gap:4px">
+                    ${s.media_url && s.tipo === "imagen"
+                      ? `<img src="${esc(s.media_url)}" style="width:100%;border-radius:var(--r)">`
+                      : `<video src="${esc(s.media_url || "")}" controls style="width:100%;border-radius:var(--r)"></video>`}
+                    ${s.contenido ? '<div class="small">' + esc(s.contenido) + "</div>" : ""}
+                    <div class="tiny dim">${esc(haceCuanto(s.created_at))}</div>
+                  </div>`
+        }).join("")
+      : '<div class="muted small">Todavía no publicaste ningún estado desde el CRM.</div>'
+  } catch (e) { toast(e.message, "error") }
+}
 
 /* ============================================================
    EVENTOS EN VIVO
@@ -1194,6 +2090,16 @@ async function abrirAsistenteDifusion(prefill = {}) {
   })
 
   function armarPayload() {
+    // Selección manual desde la lista: manda a esos contactos y a nadie más.
+    if (prefill.jids?.length) {
+      return {
+        nombre:  q("#d-nombre").value.trim(),
+        mensaje: q("#d-mensaje").value.trim(),
+        filtros: { jids: prefill.jids },
+        settings: leerSettings()
+      }
+    }
+
     // Las ciudades de una provincia ya marcada se ignoran: la provincia las cubre.
     const provincias = [...overlay.querySelectorAll(".prov-check:checked")].map(c => c.value)
     const areas = [...overlay.querySelectorAll(".zona-check:checked")]
@@ -1213,17 +2119,22 @@ async function abrirAsistenteDifusion(prefill = {}) {
         excluirRecientes: q("#d-excluir-recientes").checked,
         limite: parseInt(q("#d-limite").value, 10) || 500
       },
-      settings: {
-        delayMinMs:       (parseInt(q("#d-delay-min").value, 10)  || 20)  * 1000,
-        delayMaxMs:       (parseInt(q("#d-delay-max").value, 10)  || 300) * 1000,
-        bloqueTamano:      parseInt(q("#d-bloque").value, 10)      || 25,
-        bloqueDelayMinMs: (parseInt(q("#d-bloque-min").value, 10) || 2)   * 60000,
-        bloqueDelayMaxMs: (parseInt(q("#d-bloque-max").value, 10) || 5)   * 60000,
-        ventana: { inicio: q("#d-hora-inicio").value, fin: q("#d-hora-fin").value, dias: [0,1,2,3,4,5,6] },
-        sinonimos:    parseFloat(q("#d-sinonimos").value),
-        usarIA:       q("#d-ia").checked,
-        cooldownDias: parseInt(q("#d-cooldown").value, 10) || 0
-      }
+      settings: leerSettings()
+    }
+  }
+
+  /** Ritmo de envío: lo comparten la difusión por filtros y la de selección manual. */
+  function leerSettings() {
+    return {
+      delayMinMs:       (parseInt(q("#d-delay-min").value, 10)  || 20)  * 1000,
+      delayMaxMs:       (parseInt(q("#d-delay-max").value, 10)  || 300) * 1000,
+      bloqueTamano:      parseInt(q("#d-bloque").value, 10)      || 25,
+      bloqueDelayMinMs: (parseInt(q("#d-bloque-min").value, 10) || 2)   * 60000,
+      bloqueDelayMaxMs: (parseInt(q("#d-bloque-max").value, 10) || 5)   * 60000,
+      ventana: { inicio: q("#d-hora-inicio").value, fin: q("#d-hora-fin").value, dias: [0,1,2,3,4,5,6] },
+      sinonimos:    parseFloat(q("#d-sinonimos").value),
+      usarIA:       q("#d-ia").checked,
+      cooldownDias: parseInt(q("#d-cooldown").value, 10) || 0
     }
   }
 

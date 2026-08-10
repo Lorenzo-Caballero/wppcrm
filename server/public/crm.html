@@ -32,7 +32,9 @@
 
       <div class="rail-sec">Marketing</div>
       <div class="nav-item" data-vista="difusiones"><span class="ico">📣</span> Difusiones</div>
+      <div class="nav-item" data-vista="estados"><span class="ico">📸</span> Estados</div>
       <div class="nav-item" data-vista="plantillas"><span class="ico">📝</span> Plantillas</div>
+      <div class="nav-item" data-vista="rapidas"><span class="ico">⚡</span> Respuestas rápidas</div>
 
       <div class="rail-sec">Cuenta</div>
       <div class="nav-item" data-vista="conexion"><span class="ico">📱</span> Conexión</div>
@@ -111,6 +113,16 @@
             <button class="btn btn-sm grow hidden" id="btn-limpiar">✕ Limpiar filtros</button>
             <button class="btn btn-sm grow hidden" id="btn-difundir-filtro" title="Crear una difusión dirigida a estos contactos">📣 Difundir a estos</button>
             <button class="btn btn-sm" id="btn-leer-todo" title="Marcar todo como leído">✓✓</button>
+            <button class="btn btn-sm" id="btn-exportar" title="Exportar a CSV">⭳</button>
+          </div>
+
+          <!-- Barra de selección múltiple (Ctrl+click / Shift+click) -->
+          <div class="barra-seleccion hidden" id="barra-seleccion">
+            <span class="chip chip-acc" id="sel-contador">0 seleccionados</span>
+            <span class="grow"></span>
+            <button class="btn btn-sm" id="sel-todos">Todos</button>
+            <button class="btn btn-primary btn-sm" id="sel-acciones">Acciones</button>
+            <button class="btn btn-ghost btn-sm" id="sel-cancelar" title="Cancelar selección">✕</button>
           </div>
         </div>
         <div class="chatlist-body" id="chatlist-body"></div>
@@ -143,8 +155,10 @@
               <option value="pendiente">Pendiente</option>
               <option value="cerrado">Cerrado</option>
             </select>
+            <button class="btn btn-ghost btn-sm" id="conv-notas" title="Notas internas">🗒</button>
             <button class="btn btn-ghost btn-sm" id="conv-tags" title="Etiquetas">🏷</button>
             <button class="btn btn-ghost btn-sm" id="conv-pin" title="Fijar">📌</button>
+            <button class="btn btn-ghost btn-sm" id="conv-menu" title="Más acciones">⋮</button>
           </div>
 
           <div class="row wrap" id="conv-tags-lista"
@@ -153,10 +167,31 @@
           <div class="conv-body" id="conv-body"></div>
 
           <div class="conv-foot">
+            <!-- Mensaje al que se está respondiendo -->
+            <div class="reply-bar hidden" id="responder-a">
+              <div class="grow truncate">
+                <div class="tiny" style="color:var(--acc);font-weight:600">Respondiendo a</div>
+                <div class="tiny muted truncate" id="responder-texto"></div>
+              </div>
+              <button class="btn btn-ghost btn-sm" id="responder-cancelar">✕</button>
+            </div>
+
+            <!-- Lista de respuestas rápidas: aparece al escribir / -->
+            <div class="quick-list hidden" id="lista-rapidas"></div>
+
             <div class="composer">
-              <textarea id="composer" rows="1" placeholder="Escribí un mensaje…  (Enter envía · Shift+Enter salta línea)"></textarea>
+              <button class="btn btn-ghost" id="btn-adjuntar" title="Adjuntar archivo (o arrastralo acá)"
+                      style="width:44px;height:44px;font-size:18px">📎</button>
+              <input type="file" id="file-input" class="hidden" multiple>
+              <textarea id="composer" rows="1"
+                        placeholder="Escribí un mensaje…  (Enter envía · Shift+Enter salta línea · / respuestas rápidas)"></textarea>
               <button class="send-btn" id="enviar" title="Enviar">➤</button>
             </div>
+          </div>
+
+          <!-- Se muestra al arrastrar archivos sobre la conversación -->
+          <div class="drop-zona hidden" id="drop-zona">
+            <div><div style="font-size:42px">📥</div><div class="h3">Soltá para enviar</div></div>
           </div>
         </div>
       </div>
@@ -173,6 +208,81 @@
           <button class="btn btn-primary" id="btn-nueva-difusion">＋ Nueva difusión</button>
         </div>
         <div id="lista-difusiones" class="col" style="gap:12px"></div>
+      </div>
+    </div>
+
+    <!-- ==================== ESTADOS ==================== -->
+    <div class="view hidden" id="vista-estados">
+      <div class="view-scroll">
+        <div class="view-head">
+          <div class="h1">Estados</div>
+          <div class="muted small">Publicá historias en el WhatsApp conectado. Duran 24 horas.</div>
+        </div>
+
+        <div class="grid-2" style="max-width:960px;align-items:start">
+          <div class="card col" style="gap:16px">
+            <div class="row" style="gap:8px">
+              <button class="btn btn-sm btn-primary" data-tipo-estado="texto">Texto</button>
+              <button class="btn btn-sm" data-tipo-estado="media">Imagen o video</button>
+            </div>
+
+            <div id="estado-texto" class="col" style="gap:12px">
+              <div class="field">
+                <label class="label">Texto del estado</label>
+                <textarea class="textarea" id="est-texto" maxlength="700"
+                          placeholder="Lo que quieras publicar…" style="min-height:140px"></textarea>
+              </div>
+              <div class="field">
+                <label class="label">Color de fondo</label>
+                <div class="row wrap" id="est-colores" style="gap:8px"></div>
+              </div>
+              <div class="field">
+                <label class="label">Tipografía</label>
+                <select class="select" id="est-fuente">
+                  <option value="0">Sistema</option>
+                  <option value="1">Serif</option>
+                  <option value="2" selected>Norican</option>
+                  <option value="3">Bryndan Write</option>
+                  <option value="4">Oswald</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="estado-media" class="col hidden" style="gap:12px">
+              <div class="field">
+                <label class="label">Archivo</label>
+                <input class="input" type="file" id="est-archivo" accept="image/*,video/*">
+                <div class="hint">Imagen o video de hasta 64 MB. Los videos de estado no deberían pasar los 30 segundos.</div>
+              </div>
+              <div class="field">
+                <label class="label">Epígrafe (opcional)</label>
+                <input class="input" id="est-caption" maxlength="300" placeholder="Texto sobre la imagen">
+              </div>
+              <div id="est-preview"></div>
+            </div>
+
+            <button class="btn btn-primary" id="est-publicar">Publicar estado</button>
+          </div>
+
+          <div class="card col" style="gap:12px">
+            <div class="h3">Publicados</div>
+            <div id="est-historial" class="col" style="gap:10px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== RESPUESTAS RÁPIDAS ==================== -->
+    <div class="view hidden" id="vista-rapidas">
+      <div class="view-scroll">
+        <div class="view-head spread">
+          <div>
+            <div class="h1">Respuestas rápidas</div>
+            <div class="muted small">Escribí <code>/atajo</code> en el chat para insertarlas</div>
+          </div>
+          <button class="btn btn-primary" id="btn-nueva-rapida">＋ Nueva</button>
+        </div>
+        <div id="lista-rapidas-admin" class="grid-2"></div>
       </div>
     </div>
 
