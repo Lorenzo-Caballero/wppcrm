@@ -57,27 +57,60 @@
 
       <div class="chatlist" id="chatlist">
         <div class="chatlist-head">
+          <!-- autocomplete/name defensivos: sin esto el navegador mete el email
+               guardado acá adentro y la lista de chats aparece vacía sola -->
           <div class="row">
-            <input class="input" id="buscar" placeholder="Buscar nombre, número o texto…" style="padding:8px 11px">
+            <input class="input" id="buscar" type="search" name="filtro_chats_wppcrm"
+                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                   data-lpignore="true" data-1p-ignore data-form-type="other"
+                   placeholder="Buscar nombre o teléfono…" style="padding:8px 11px">
             <button class="btn btn-sm" id="btn-sync" title="Traer los chats desde WhatsApp">⟳</button>
           </div>
+
           <div class="chatlist-filters">
             <select class="select grow" id="filtro-zona"><option value="">Todas las zonas</option></select>
             <select class="select" id="filtro-orden">
               <option value="reciente">Recientes</option>
               <option value="respuesta">Última respuesta</option>
+              <option value="frios">Más fríos primero</option>
               <option value="noleidos">No leídos</option>
               <option value="area">Por zona</option>
               <option value="nombre">Por nombre</option>
               <option value="antiguo">Más antiguos</option>
             </select>
           </div>
+
+          <div class="chatlist-filters">
+            <select class="select grow" id="filtro-quien">
+              <option value="">Habló último: cualquiera</option>
+              <option value="cliente">Habló el cliente</option>
+              <option value="yo">Hablé yo</option>
+              <option value="ninguno">Sin mensajes</option>
+            </select>
+            <select class="select grow" id="filtro-frios">
+              <option value="">Sin filtro de tiempo</option>
+              <option value="7">Callados +7 días</option>
+              <option value="15">Callados +15 días</option>
+              <option value="30">Callados +30 días</option>
+              <option value="60">Callados +60 días</option>
+              <option value="90">Callados +90 días</option>
+            </select>
+          </div>
+
+          <div class="row wrap" id="filtro-tags" style="gap:5px"></div>
+
           <div class="row" style="justify-content:space-between">
             <label class="switch tiny">
               <input type="checkbox" id="solo-noleidos"><span class="track"></span>
               <span class="muted">Solo no leídos</span>
             </label>
             <span class="tiny dim" id="chatlist-total"></span>
+          </div>
+
+          <div class="row" style="gap:6px">
+            <button class="btn btn-sm grow hidden" id="btn-limpiar">✕ Limpiar filtros</button>
+            <button class="btn btn-sm grow hidden" id="btn-difundir-filtro" title="Crear una difusión dirigida a estos contactos">📣 Difundir a estos</button>
+            <button class="btn btn-sm" id="btn-leer-todo" title="Marcar todo como leído">✓✓</button>
           </div>
         </div>
         <div class="chatlist-body" id="chatlist-body"></div>
@@ -110,8 +143,12 @@
               <option value="pendiente">Pendiente</option>
               <option value="cerrado">Cerrado</option>
             </select>
+            <button class="btn btn-ghost btn-sm" id="conv-tags" title="Etiquetas">🏷</button>
             <button class="btn btn-ghost btn-sm" id="conv-pin" title="Fijar">📌</button>
           </div>
+
+          <div class="row wrap" id="conv-tags-lista"
+               style="gap:5px;padding:8px 20px 0;background:var(--bg-1)"></div>
 
           <div class="conv-body" id="conv-body"></div>
 

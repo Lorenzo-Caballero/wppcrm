@@ -28,20 +28,41 @@ router.get("/zonas", asyncHandler(async (req, res) => {
   res.json({ ...facetas, catalogo: catalogoAreas() })
 }))
 
+/** Traduce los parámetros de la URL a las opciones del servicio. */
+function filtrosDeQuery(q) {
+  return {
+    search:            q.q      || "",
+    area:              q.area   || "",
+    country:           q.pais   || "",
+    province:          q.prov   || "",
+    status:            q.estado || "",
+    tag:               q.tag    || "",
+    quien:             q.quien  || "",
+    friosDias:         parseInt(q.frios, 10) || 0,
+    orden:             q.orden  || "reciente",
+    soloNoLeidos:      q.noleidos   === "1",
+    incluirArchivados: q.archivados === "1"
+  }
+}
+
 router.get("/", asyncHandler(async (req, res) => {
-  const chats = await chatService.listarChats(req.tenantId, {
-    search:            req.query.q       || "",
-    area:              req.query.area    || "",
-    country:           req.query.pais    || "",
-    province:          req.query.prov    || "",
-    status:            req.query.estado  || "",
-    orden:             req.query.orden   || "reciente",
-    soloNoLeidos:      req.query.noleidos === "1",
-    incluirArchivados: req.query.archivados === "1",
-    limit:             Math.min(parseInt(req.query.limit, 10) || 60, 200),
-    offset:            parseInt(req.query.offset, 10) || 0
-  })
-  res.json(chats.map(decorar))
+  const filtros = filtrosDeQuery(req.query)
+  const limit   = Math.min(parseInt(req.query.limit, 10) || 60, 200)
+  const offset  = parseInt(req.query.offset, 10) || 0
+
+  const [chats, total] = await Promise.all([
+    chatService.listarChats(req.tenantId, { ...filtros, limit, offset }),
+    chatService.contarChats(req.tenantId, filtros)
+  ])
+  res.json({ chats: chats.map(decorar), total, offset, limit })
+}))
+
+router.get("/tags", asyncHandler(async (req, res) => {
+  res.json(await chatService.listarTags(req.tenantId))
+}))
+
+router.post("/leer-todo", asyncHandler(async (req, res) => {
+  res.json({ ok: true, actualizados: await chatService.marcarTodoLeido(req.tenantId) })
 }))
 
 router.get("/:id/messages", asyncHandler(async (req, res) => {
@@ -96,6 +117,14 @@ router.patch("/:id", asyncHandler(async (req, res) => {
 router.post("/:id/read", asyncHandler(async (req, res) => {
   await chatService.marcarLeido(req.tenantId, parseInt(req.params.id, 10))
   res.json({ ok: true })
+}))
+
+router.post("/:id/tags", asyncHandler(async (req, res) => {
+  const chatId = parseInt(req.params.id, 10)
+  const chat = req.body.quitar
+    ? await chatService.quitarTag(req.tenantId, chatId, req.body.quitar)
+    : await chatService.agregarTag(req.tenantId, chatId, req.body.agregar)
+  res.json(decorar(chat))
 }))
 
 module.exports = router

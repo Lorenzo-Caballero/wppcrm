@@ -286,6 +286,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .chat-item .pv { font-size: 12.5px; color: var(--tx-2); margin-top: 2px; }
 .chat-item .meta { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
 
+/* Anclar desde la lista, sin abrir el chat */
+.btn-pin {
+  background: none; border: 0; cursor: pointer; padding: 0 2px;
+  font-size: 11px; line-height: 1; transition: opacity .15s, transform .1s;
+}
+.btn-pin:hover { opacity: 1 !important; transform: scale(1.2); }
+
+.chat-item .meta .chip.tiny { font-size: 10px; padding: 1px 6px; }
+
 .zone-tag {
   font-size: 10.5px; padding: 1.5px 7px; border-radius: var(--r-full);
   background: rgba(56,189,248,.1); color: #7dd3fc; border: 1px solid rgba(56,189,248,.2);

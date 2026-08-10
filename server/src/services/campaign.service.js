@@ -90,6 +90,23 @@ async function resolverAudiencia(tenantId, filtros = {}, settings = {}) {
   }
   if (filtros.soloConRespuesta) where.push("c.last_inbound_at IS NOT NULL")
 
+  if (filtros.tag) {
+    params.push(filtros.tag); i++
+    where.push(`$${i} = ANY(c.tags)`)
+  }
+
+  // Mismos criterios que el listado del CRM, para poder difundir
+  // exactamente al grupo que estás viendo en pantalla.
+  if (filtros.quien === "cliente") where.push("c.last_direction = 'in'")
+  if (filtros.quien === "yo")      where.push("c.last_direction = 'out'")
+  if (filtros.quien === "ninguno") where.push("c.last_direction IS NULL")
+
+  const diasFrio = parseInt(filtros.friosDias, 10)
+  if (Number.isFinite(diasFrio) && diasFrio > 0) {
+    params.push(diasFrio); i++
+    where.push(`(c.last_inbound_at IS NULL OR c.last_inbound_at < now() - ($${i} || ' days')::interval)`)
+  }
+
   if (filtros.excluirRecientes !== false && cfg.cooldownDias > 0) {
     params.push(cfg.cooldownDias); i++
     where.push(`(ct.last_campaign_at IS NULL OR ct.last_campaign_at < now() - ($${i} || ' days')::interval)`)

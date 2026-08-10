@@ -39,7 +39,7 @@ const ESTADO_WA = {
   $("#tenant-name").textContent = sesion.tenant?.name || (TENANT_ID ? "Cliente #" + TENANT_ID : "Mi CRM")
 
   conectarSocket()
-  await Promise.all([cargarSesionesWa(), cargarZonas(), cargarChats()])
+  await Promise.all([cargarSesionesWa(), cargarZonas(), cargarTags(), cargarChats()])
   pintarPlan()
   refrescarResumen()
   setInterval(refrescarResumen, 60000)
@@ -123,14 +123,64 @@ async function cargarZonas() {
    LISTA DE CHATS
    ============================================================ */
 let timerBusqueda = null
+let timerRecarga  = null
+let cargaSeq      = 0          // descarta respuestas viejas que llegan tarde
+let totalFiltrado = 0
 
-$("#buscar").addEventListener("input", () => {
+// El navegador autocompleta campos de texto sueltos con el email guardado.
+// Si eso pasa acá, la búsqueda se ensucia sola y la lista queda vacía sin
+// que el usuario haya tocado nada. Limpiamos cualquier valor que no haya
+// sido tecleado por una persona.
+let busquedaTecleada = ""
+$("#buscar").addEventListener("input", e => {
+  busquedaTecleada = e.target.value
   clearTimeout(timerBusqueda)
   timerBusqueda = setTimeout(cargarChats, 280)
 })
-$("#filtro-zona").addEventListener("change", cargarChats)
-$("#filtro-orden").addEventListener("change", cargarChats)
-$("#solo-noleidos").addEventListener("change", cargarChats)
+
+function limpiarAutocompletado() {
+  const campo = $("#buscar")
+  if (campo.value !== busquedaTecleada) campo.value = busquedaTecleada
+}
+// El autocompletado puede llegar después del load, así que revisamos un rato.
+;[100, 400, 900, 2000].forEach(ms => setTimeout(limpiarAutocompletado, ms))
+window.addEventListener("pageshow", () => setTimeout(limpiarAutocompletado, 100))
+
+$$("#filtro-zona, #filtro-orden, #filtro-quien, #filtro-frios, #solo-noleidos")
+  .forEach(el => el.addEventListener("change", cargarChats))
+
+$("#btn-limpiar").addEventListener("click", () => {
+  busquedaTecleada = ""
+  $("#buscar").value = ""
+  $("#filtro-zona").value = ""
+  $("#filtro-quien").value = ""
+  $("#filtro-frios").value = ""
+  $("#filtro-orden").value = "reciente"
+  $("#solo-noleidos").checked = false
+  tagActivo = ""
+  cargarChats()
+  cargarTags()
+})
+
+$("#btn-leer-todo").addEventListener("click", async () => {
+  try {
+    const r = await API.post(u("/chats/leer-todo"))
+    toast(r.actualizados ? r.actualizados + " chats marcados como leídos" : "No había nada sin leer")
+    cargarChats(); refrescarResumen()
+  } catch (e) { toast(e.message, "error") }
+})
+
+$("#btn-difundir-filtro").addEventListener("click", () => {
+  $$(".nav-item").forEach(i => i.classList.toggle("active", i.dataset.vista === "difusiones"))
+  VISTAS.forEach(v => $("#vista-" + v).classList.toggle("hidden", v !== "difusiones"))
+  abrirAsistenteDifusion(filtrosActuales())
+})
+
+/** Recarga coalescida: varios mensajes seguidos disparan una sola consulta. */
+function recargarChatsPronto(ms = 500) {
+  clearTimeout(timerRecarga)
+  timerRecarga = setTimeout(cargarChats, ms)
+}
 
 $("#btn-sync").addEventListener("click", async () => {
   const sesionWa = sesionesWa[0]
@@ -151,42 +201,88 @@ $("#btn-sync").addEventListener("click", async () => {
   }
 })
 
-async function cargarChats() {
+/** Lee el estado actual de todos los filtros de la pantalla. */
+function filtrosActuales() {
   const zona = $("#filtro-zona").value
-  const params = new URLSearchParams({
+  return {
     q:        $("#buscar").value.trim(),
     orden:    $("#filtro-orden").value,
+    quien:    $("#filtro-quien").value,
+    frios:    $("#filtro-frios").value,
+    tag:      tagActivo,
     noleidos: $("#solo-noleidos").checked ? "1" : "",
-    limit:    "120"
-  })
-  if (zona.startsWith("area:")) params.set("area", zona.slice(5))
-  if (zona.startsWith("pais:")) params.set("pais", zona.slice(5))
+    area:     zona.startsWith("area:") ? zona.slice(5) : "",
+    pais:     zona.startsWith("pais:") ? zona.slice(5) : ""
+  }
+}
 
+function hayFiltrosActivos() {
+  const f = filtrosActuales()
+  return !!(f.q || f.quien || f.frios || f.tag || f.noleidos || f.area || f.pais)
+}
+
+async function cargarChats() {
+  limpiarAutocompletado()
+
+  const f = filtrosActuales()
+  const params = new URLSearchParams({ limit: "120" })
+  for (const [k, v] of Object.entries(f)) if (v) params.set(k, v)
+
+  const mia = ++cargaSeq
   try {
-    chats = await API.get(u("/chats?" + params.toString()))
+    const r = await API.get(u("/chats?" + params.toString()))
+    // Si mientras esperábamos salió otra consulta, esta respuesta ya no sirve:
+    // pintarla haría "parpadear" la lista con datos viejos.
+    if (mia !== cargaSeq) return
+
+    chats = r.chats || []
+    totalFiltrado = r.total || 0
     pintarChats()
   } catch (e) {
-    toast(e.message, "error")
+    if (mia === cargaSeq) toast(e.message, "error")
   }
 }
 
 function pintarChats() {
   const cont = $("#chatlist-body")
-  $("#chatlist-total").textContent = chats.length ? chats.length + " chats" : ""
+  const filtrando = hayFiltrosActivos()
+
+  $("#chatlist-total").textContent = totalFiltrado
+    ? (chats.length < totalFiltrado ? chats.length + " de " + nEsp(totalFiltrado) : nEsp(totalFiltrado) + " chats")
+    : ""
+  $("#btn-limpiar").classList.toggle("hidden", !filtrando)
+  $("#btn-difundir-filtro").classList.toggle("hidden", !filtrando || !chats.length)
 
   if (!chats.length) {
-    cont.innerHTML = `<div class="empty" style="padding:50px 24px">
-      <div>
-        <div class="ico">📭</div>
-        <div class="h3">No hay conversaciones</div>
-        <div class="muted small" style="margin-top:6px">Conectá WhatsApp y tocá ⟳ para traer tus chats.</div>
-      </div></div>`
+    // Distinguir "no tenés chats" de "el filtro no encontró nada" evita
+    // que parezca que se rompió algo cuando en realidad hay un filtro puesto.
+    cont.innerHTML = filtrando
+      ? `<div class="empty" style="padding:50px 24px">
+           <div>
+             <div class="ico">🔍</div>
+             <div class="h3">Sin resultados</div>
+             <div class="muted small" style="margin-top:6px">Ningún chat coincide con los filtros actuales.</div>
+             <button class="btn btn-sm" style="margin-top:14px" onclick="document.getElementById('btn-limpiar').click()">Limpiar filtros</button>
+           </div></div>`
+      : `<div class="empty" style="padding:50px 24px">
+           <div>
+             <div class="ico">📭</div>
+             <div class="h3">No hay conversaciones</div>
+             <div class="muted small" style="margin-top:6px">Conectá WhatsApp y tocá ⟳ para traer tus chats.</div>
+           </div></div>`
     return
   }
 
   cont.innerHTML = chats.map(c => {
     const nombre = c.display_name
     const activo = chatActivo && chatActivo.id === c.id
+    const tags   = (c.tags || []).map(t => '<span class="chip tiny">' + esc(t) + "</span>").join("")
+
+    // "Te escribió hace X" es el dato que más se mira para decidir a quién retomar.
+    const ultimaResp = c.last_inbound_at
+      ? "responde " + haceCuanto(c.last_inbound_at)
+      : "nunca respondió"
+
     return `<div class="chat-item ${activo ? "active" : ""}" data-chat="${c.id}">
       ${avatarHtml(nombre)}
       <div class="grow" style="min-width:0">
@@ -199,9 +295,12 @@ function pintarChats() {
         </div>
         <div class="meta">
           ${c.region ? '<span class="zone-tag">' + esc(c.region) + "</span>" : ""}
+          ${tags}
           ${c.status !== "abierto" ? '<span class="chip tiny">' + esc(c.status) + "</span>" : ""}
-          ${c.pinned ? '<span class="tiny">📌</span>' : ""}
           <span class="grow"></span>
+          <span class="tiny dim">${esc(ultimaResp)}</span>
+          <button class="btn-pin" data-pin="${c.id}" title="${c.pinned ? "Desfijar" : "Fijar arriba"}"
+                  style="opacity:${c.pinned ? 1 : .3}">📌</button>
           ${c.unread_count > 0 ? '<span class="badge">' + c.unread_count + "</span>" : ""}
         </div>
       </div>
@@ -210,6 +309,38 @@ function pintarChats() {
 
   cont.querySelectorAll("[data-chat]").forEach(el =>
     el.addEventListener("click", () => abrirChat(Number(el.dataset.chat))))
+
+  cont.querySelectorAll("[data-pin]").forEach(b => b.addEventListener("click", async e => {
+    e.stopPropagation()          // sin esto, fijar también abriría el chat
+    const id = Number(b.dataset.pin)
+    const actual = chats.find(c => c.id === id)
+    try {
+      await API.patch(u("/chats/" + id), { pinned: !actual.pinned })
+      cargarChats()
+    } catch (err) { toast(err.message, "error") }
+  }))
+}
+
+/* ---------------- Etiquetas ---------------- */
+let tagActivo = ""
+
+async function cargarTags() {
+  try {
+    const tags = await API.get(u("/chats/tags"))
+    const cont = $("#filtro-tags")
+    if (!tags.length) { cont.innerHTML = ""; return }
+
+    cont.innerHTML = tags.map(t =>
+      `<span class="chip ${tagActivo === t.tag ? "chip-acc" : ""}" data-ftag="${esc(t.tag)}"
+             style="cursor:pointer">${esc(t.tag)} <span class="dim">${t.total}</span></span>`
+    ).join("")
+
+    cont.querySelectorAll("[data-ftag]").forEach(el => el.addEventListener("click", () => {
+      tagActivo = tagActivo === el.dataset.ftag ? "" : el.dataset.ftag
+      cargarTags()
+      cargarChats()
+    }))
+  } catch (_) {}
 }
 
 /* ============================================================
@@ -233,8 +364,12 @@ async function abrirChat(chatId) {
     const ultima = chat.last_inbound_at
       ? "Te escribió " + haceCuanto(chat.last_inbound_at)
       : "Todavía no te escribió"
-    $("#conv-sub").textContent = chat.phone_pretty + " · " + ultima
+    const quienHablo = chat.last_direction === "out" ? "última palabra: vos"
+                     : chat.last_direction === "in"  ? "última palabra: el cliente"
+                     : "sin mensajes"
+    $("#conv-sub").textContent = chat.phone_pretty + " · " + ultima + " · " + quienHablo
 
+    pintarTagsConversacion()
     pintarMensajes(mensajes)
 
     // Marca el ítem activo y limpia su badge sin recargar toda la lista
@@ -344,6 +479,74 @@ $("#conv-pin").addEventListener("click", async () => {
   } catch (e) { toast(e.message, "error") }
 })
 
+/* ---------------- Etiquetas de la conversación abierta ---------------- */
+function pintarTagsConversacion() {
+  const cont = $("#conv-tags-lista")
+  const tags = chatActivo?.tags || []
+
+  cont.innerHTML = tags.map(t =>
+    `<span class="chip chip-purple">${esc(t)} <button data-quitar="${esc(t)}" title="Quitar">✕</button></span>`
+  ).join("")
+
+  cont.querySelectorAll("[data-quitar]").forEach(b => b.addEventListener("click", async () => {
+    try {
+      const c = await API.post(u("/chats/" + chatActivo.id + "/tags"), { quitar: b.dataset.quitar })
+      chatActivo.tags = c.tags
+      pintarTagsConversacion()
+      cargarTags(); cargarChats()
+    } catch (e) { toast(e.message, "error") }
+  }))
+}
+
+$("#conv-tags").addEventListener("click", async () => {
+  if (!chatActivo) return
+  const existentes = await API.get(u("/chats/tags")).catch(() => [])
+  const sugeridas  = existentes
+    .filter(t => !(chatActivo.tags || []).includes(t.tag))
+    .map(t => `<span class="chip" data-sug="${esc(t.tag)}" style="cursor:pointer">＋ ${esc(t.tag)}</span>`)
+    .join("")
+
+  const { overlay, cerrar } = abrirModal(`
+    <div class="modal-head">
+      <div>
+        <div class="h2">Etiquetas</div>
+        <div class="tiny dim">${esc(chatActivo.display_name || "")}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label class="label">Nueva etiqueta</label>
+        <div class="row">
+          <input class="input" id="tg-nueva" maxlength="30" placeholder="presupuesto enviado" autocomplete="off">
+          <button class="btn btn-primary" id="tg-add">Agregar</button>
+        </div>
+        <div class="hint">Sirven para filtrar la lista y para segmentar difusiones.</div>
+      </div>
+      ${sugeridas ? '<div class="field"><label class="label">Ya usadas</label><div class="row wrap" style="gap:6px">' + sugeridas + "</div></div>" : ""}
+    </div>
+    <div class="modal-foot"><button class="btn" data-cerrar>Listo</button></div>`)
+
+  const agregar = async valor => {
+    const tag = String(valor || "").trim()
+    if (!tag) return
+    try {
+      const c = await API.post(u("/chats/" + chatActivo.id + "/tags"), { agregar: tag })
+      chatActivo.tags = c.tags
+      pintarTagsConversacion()
+      cargarTags(); cargarChats()
+      cerrar()
+    } catch (e) { toast(e.message, "error") }
+  }
+
+  overlay.querySelector("#tg-add").addEventListener("click", () => agregar(overlay.querySelector("#tg-nueva").value))
+  overlay.querySelector("#tg-nueva").addEventListener("keydown", e => {
+    if (e.key === "Enter") agregar(e.target.value)
+  })
+  overlay.querySelectorAll("[data-sug]").forEach(el =>
+    el.addEventListener("click", () => agregar(el.dataset.sug)))
+})
+
 /* ============================================================
    EVENTOS EN VIVO
    ============================================================ */
@@ -356,7 +559,7 @@ function alMensajeNuevo(p) {
     const quien = p.contacto?.name || p.contacto?.push_name || p.contacto?.phone || "Nuevo mensaje"
     toast("💬 " + quien + ": " + (p.mensaje.body || "").slice(0, 60))
   }
-  cargarChats()
+  recargarChatsPronto()
   refrescarResumen()
 }
 
@@ -611,9 +814,13 @@ async function modalDetalle(id) {
 }
 
 /* ---------------- Asistente de nueva difusión ---------------- */
-$("#btn-nueva-difusion").addEventListener("click", abrirAsistenteDifusion)
+// Ojo: sin la arrow, el listener pasaría el MouseEvent como prefill.
+$("#btn-nueva-difusion").addEventListener("click", () => abrirAsistenteDifusion())
 
-async function abrirAsistenteDifusion() {
+/**
+ * @param prefill filtros heredados del listado de chats (botón "Difundir a estos")
+ */
+async function abrirAsistenteDifusion(prefill = {}) {
   const [zonas, defaults, tpls] = await Promise.all([
     API.get(u("/chats/zonas")),
     API.get(u("/campaigns/defaults")),
@@ -622,7 +829,8 @@ async function abrirAsistenteDifusion() {
 
   const opcionesZona = zonas.areas.map(a =>
     `<label class="chip" style="cursor:pointer">
-       <input type="checkbox" value="${a.area_code}" class="zona-check" style="margin-right:5px">
+       <input type="checkbox" value="${a.area_code}" class="zona-check"
+              ${prefill.area === a.area_code ? "checked" : ""} style="margin-right:5px">
        ${esc(a.region)} (${a.total})
      </label>`).join("")
 
@@ -671,6 +879,29 @@ async function abrirAsistenteDifusion() {
         <div class="row wrap" style="gap:7px" id="d-zonas">${opcionesZona || '<span class="dim small">Sincronizá tus chats para ver las zonas</span>'}</div>
         <div class="hint">Sin seleccionar ninguna zona, se envía a todos tus contactos.</div>
       </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label class="label">Quién habló último</label>
+          <select class="select" id="d-quien">
+            <option value="">Cualquiera</option>
+            <option value="cliente"${prefill.quien === "cliente" ? " selected" : ""}>Habló el cliente</option>
+            <option value="yo"${prefill.quien === "yo" ? " selected" : ""}>Hablé yo (sin respuesta)</option>
+            <option value="ninguno"${prefill.quien === "ninguno" ? " selected" : ""}>Sin mensajes</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label">Solo contactos fríos (días sin respuesta)</label>
+          <input class="input" id="d-frios" type="number" min="0" value="${prefill.frios || 0}">
+          <div class="hint">0 = sin filtro de tiempo. Sirve para reactivar clientes dormidos.</div>
+        </div>
+      </div>
+
+      ${prefill.tag ? `<div class="field">
+        <label class="label">Etiqueta</label>
+        <div class="row"><span class="chip chip-purple">${esc(prefill.tag)}</span>
+        <span class="tiny dim">solo se envía a los chats con esta etiqueta</span></div>
+      </div>` : ""}
 
       <div class="grid-2">
         <label class="switch"><input type="checkbox" id="d-solo-respondieron"><span class="track"></span>
@@ -777,6 +1008,9 @@ async function abrirAsistenteDifusion() {
       mensaje: q("#d-mensaje").value.trim(),
       filtros: {
         areas,
+        quien:            q("#d-quien").value,
+        friosDias:        parseInt(q("#d-frios").value, 10) || 0,
+        tag:              prefill.tag || "",
         soloConRespuesta: q("#d-solo-respondieron").checked,
         excluirRecientes: q("#d-excluir-recientes").checked,
         limite: parseInt(q("#d-limite").value, 10) || 500

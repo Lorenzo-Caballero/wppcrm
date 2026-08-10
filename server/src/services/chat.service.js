@@ -59,11 +59,15 @@ async function upsertChat(tenantId, sessionId, contactId, waChatId, extra = {}) 
  * Listado principal del CRM. Soporta filtro por país, código de área,
  * provincia, estado, búsqueda de texto y ordenamiento.
  */
-async function listarChats(tenantId, opciones = {}) {
+/**
+ * Construye el WHERE compartido por el listado y por el contador.
+ * Devuelve { where, params, i } para que quien llame siga numerando desde ahí.
+ */
+function armarFiltros(tenantId, opciones = {}) {
   const {
     search = "", area = "", country = "", province = "",
-    status = "", soloNoLeidos = false, incluirArchivados = false,
-    orden = "reciente", limit = 60, offset = 0
+    status = "", tag = "", quien = "", friosDias = 0,
+    soloNoLeidos = false, incluirArchivados = false
   } = opciones
 
   const where  = ["c.tenant_id = $1"]
@@ -71,31 +75,67 @@ async function listarChats(tenantId, opciones = {}) {
   let i = 1
 
   if (!incluirArchivados) where.push("c.archived = FALSE")
+
+  // Búsqueda por nombre, texto del último mensaje o teléfono.
+  // Para el teléfono comparamos solo dígitos, así "223 407-7440",
+  // "+54 9 223 4077440" y "2234077440" encuentran lo mismo.
   if (search) {
-    params.push("%" + search.toLowerCase() + "%"); i++
-    where.push(`(LOWER(COALESCE(ct.name,'')) LIKE $${i}
-              OR LOWER(COALESCE(ct.push_name,'')) LIKE $${i}
-              OR ct.phone LIKE $${i}
-              OR LOWER(COALESCE(c.last_message_text,'')) LIKE $${i})`)
+    const partes = []
+    params.push("%" + search.toLowerCase() + "%")
+    const pTexto = ++i
+    partes.push(`LOWER(COALESCE(ct.name,''))            LIKE $${pTexto}`)
+    partes.push(`LOWER(COALESCE(ct.push_name,''))       LIKE $${pTexto}`)
+    partes.push(`LOWER(COALESCE(c.last_message_text,'')) LIKE $${pTexto}`)
+
+    const digitos = String(search).replace(/\D/g, "")
+    if (digitos.length >= 3) {
+      params.push("%" + digitos + "%")
+      partes.push(`ct.phone LIKE $${++i}`)
+    }
+    where.push("(" + partes.join(" OR ") + ")")
   }
-  if (area)     { params.push(area);     i++; where.push(`ct.area_code    = $${i}`) }
-  if (country)  { params.push(country);  i++; where.push(`ct.country_code = $${i}`) }
-  if (province) { params.push(province); i++; where.push(`ct.province     = $${i}`) }
-  if (status)   { params.push(status);   i++; where.push(`c.status        = $${i}`) }
+
+  if (area)     { params.push(area);     where.push(`ct.area_code    = $${++i}`) }
+  if (country)  { params.push(country);  where.push(`ct.country_code = $${++i}`) }
+  if (province) { params.push(province); where.push(`ct.province     = $${++i}`) }
+  if (status)   { params.push(status);   where.push(`c.status        = $${++i}`) }
+  if (tag)      { params.push(tag);      where.push(`$${++i} = ANY(c.tags)`) }
+
+  // Quién habló último
+  if (quien === "cliente") where.push("c.last_direction = 'in'")
+  if (quien === "yo")      where.push("c.last_direction = 'out'")
+  if (quien === "ninguno") where.push("c.last_direction IS NULL")
+
+  // Contactos "fríos": hace N días que el cliente no escribe (o nunca escribió).
+  const dias = parseInt(friosDias, 10)
+  if (Number.isFinite(dias) && dias > 0) {
+    params.push(dias)
+    where.push(`(c.last_inbound_at IS NULL OR c.last_inbound_at < now() - ($${++i} || ' days')::interval)`)
+  }
+
   if (soloNoLeidos) where.push("c.unread_count > 0")
 
-  const ORDENES = {
-    reciente:  "c.pinned DESC, c.last_message_at DESC NULLS LAST",
-    antiguo:   "c.pinned DESC, c.last_message_at ASC  NULLS LAST",
-    respuesta: "c.pinned DESC, c.last_inbound_at DESC NULLS LAST",
-    nombre:    "c.pinned DESC, LOWER(COALESCE(ct.name, ct.push_name, ct.phone)) ASC",
-    noleidos:  "c.pinned DESC, c.unread_count DESC, c.last_message_at DESC NULLS LAST",
-    area:      "c.pinned DESC, ct.area_code ASC NULLS LAST, c.last_message_at DESC NULLS LAST"
-  }
-  const orderBy = ORDENES[orden] || ORDENES.reciente
+  return { where, params, i }
+}
 
-  params.push(limit); const pLimit = ++i
-  params.push(offset); const pOffset = ++i
+const ORDENES = {
+  reciente:  "c.pinned DESC, c.last_message_at DESC NULLS LAST",
+  antiguo:   "c.pinned DESC, c.last_message_at ASC  NULLS LAST",
+  respuesta: "c.pinned DESC, c.last_inbound_at DESC NULLS LAST",
+  // Para reactivar: primero los que nunca contestaron, después los más olvidados.
+  frios:     "c.pinned DESC, c.last_inbound_at ASC  NULLS FIRST",
+  nombre:    "c.pinned DESC, LOWER(COALESCE(ct.name, ct.push_name, ct.phone)) ASC",
+  noleidos:  "c.pinned DESC, c.unread_count DESC, c.last_message_at DESC NULLS LAST",
+  area:      "c.pinned DESC, ct.area_code ASC NULLS LAST, c.last_message_at DESC NULLS LAST"
+}
+
+async function listarChats(tenantId, opciones = {}) {
+  const { limit = 60, offset = 0, orden = "reciente" } = opciones
+  const { where, params, i } = armarFiltros(tenantId, opciones)
+
+  const orderBy = ORDENES[orden] || ORDENES.reciente
+  params.push(limit);  const pLimit  = i + 1
+  params.push(offset); const pOffset = i + 2
 
   return db.many(
     `SELECT c.id, c.wa_chat_id, c.unread_count, c.last_message_at, c.last_message_text,
@@ -109,6 +149,18 @@ async function listarChats(tenantId, opciones = {}) {
       LIMIT $${pLimit} OFFSET $${pOffset}`,
     params
   )
+}
+
+/** Cuántos chats hay en total con esos filtros (el listado viene paginado). */
+async function contarChats(tenantId, opciones = {}) {
+  const { where, params } = armarFiltros(tenantId, opciones)
+  const r = await db.one(
+    `SELECT COUNT(*)::int AS total
+       FROM chats c JOIN contacts ct ON ct.id = c.contact_id
+      WHERE ${where.join(" AND ")}`,
+    params
+  )
+  return r?.total || 0
 }
 
 /** Cuenta de chats agrupada por zona — alimenta los filtros laterales. */
@@ -168,6 +220,48 @@ async function actualizarChat(tenantId, chatId, campos) {
 
 async function marcarLeido(tenantId, chatId) {
   await db.query("UPDATE chats SET unread_count = 0 WHERE tenant_id = $1 AND id = $2", [tenantId, chatId])
+}
+
+async function marcarTodoLeido(tenantId) {
+  const r = await db.query(
+    "UPDATE chats SET unread_count = 0 WHERE tenant_id = $1 AND unread_count > 0", [tenantId]
+  )
+  return r.rowCount
+}
+
+// ------------------------------------------------------------
+//  ETIQUETAS
+// ------------------------------------------------------------
+/** Todas las etiquetas usadas por el cliente, con cuántos chats tiene cada una. */
+async function listarTags(tenantId) {
+  return db.many(
+    `SELECT etiqueta AS tag, COUNT(*)::int AS total
+       FROM chats c, unnest(c.tags) AS etiqueta
+      WHERE c.tenant_id = $1
+      GROUP BY etiqueta
+      ORDER BY total DESC, etiqueta ASC`,
+    [tenantId]
+  )
+}
+
+async function agregarTag(tenantId, chatId, tag) {
+  const limpia = String(tag || "").trim().slice(0, 30)
+  if (!limpia) throw new Error("La etiqueta está vacía")
+
+  await db.query(
+    `UPDATE chats SET tags = array_append(tags, $3)
+      WHERE tenant_id = $1 AND id = $2 AND NOT ($3 = ANY(tags))`,
+    [tenantId, chatId, limpia]
+  )
+  return obtenerChat(tenantId, chatId)
+}
+
+async function quitarTag(tenantId, chatId, tag) {
+  await db.query(
+    "UPDATE chats SET tags = array_remove(tags, $3) WHERE tenant_id = $1 AND id = $2",
+    [tenantId, chatId, String(tag || "")]
+  )
+  return obtenerChat(tenantId, chatId)
 }
 
 // ------------------------------------------------------------
@@ -239,7 +333,8 @@ async function resumenTenant(tenantId) {
 }
 
 module.exports = {
-  upsertContacto, upsertChat, listarChats, facetasPorZona,
-  obtenerChat, obtenerChatPorJid, actualizarChat, marcarLeido,
-  registrarMensaje, listarMensajes, resumenTenant
+  upsertContacto, upsertChat, listarChats, contarChats, facetasPorZona,
+  obtenerChat, obtenerChatPorJid, actualizarChat, marcarLeido, marcarTodoLeido,
+  listarTags, agregarTag, quitarTag,
+  registrarMensaje, listarMensajes, resumenTenant, ORDENES
 }
