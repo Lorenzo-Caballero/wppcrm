@@ -140,11 +140,13 @@ $("#buscar").addEventListener("input", e => {
 
 function limpiarAutocompletado() {
   const campo = $("#buscar")
-  if (campo.value !== busquedaTecleada) campo.value = busquedaTecleada
+  if (campo && campo.value !== busquedaTecleada) campo.value = busquedaTecleada
 }
-// El autocompletado puede llegar después del load, así que revisamos un rato.
-;[100, 400, 900, 2000].forEach(ms => setTimeout(limpiarAutocompletado, ms))
+// El autocompletado puede llegar bastante después del load (incluso al volver
+// a la pestaña), así que vigilamos el campo un rato y en cada foco de ventana.
+;[0, 100, 300, 600, 1200, 2500, 5000].forEach(ms => setTimeout(limpiarAutocompletado, ms))
 window.addEventListener("pageshow", () => setTimeout(limpiarAutocompletado, 100))
+window.addEventListener("focus",    () => setTimeout(limpiarAutocompletado, 100))
 
 $$("#filtro-zona, #filtro-orden, #filtro-quien, #filtro-frios, #solo-noleidos")
   .forEach(el => el.addEventListener("change", cargarChats))
@@ -205,7 +207,9 @@ $("#btn-sync").addEventListener("click", async () => {
 function filtrosActuales() {
   const zona = $("#filtro-zona").value
   return {
-    q:        $("#buscar").value.trim(),
+    // A propósito NO se lee $("#buscar").value: el navegador puede escribir
+    // ahí lo que quiera (autocompletado). Solo vale lo que se tecleó.
+    q:        busquedaTecleada.trim(),
     orden:    $("#filtro-orden").value,
     quien:    $("#filtro-quien").value,
     frios:    $("#filtro-frios").value,

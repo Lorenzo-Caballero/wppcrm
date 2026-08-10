@@ -1,3 +1,4 @@
+const fs          = require("fs")
 const path        = require("path")
 const express     = require("express")
 const helmet      = require("helmet")
@@ -37,12 +38,39 @@ app.use(cookieParser())
 app.use("/api", require("./routes"))
 
 // ---------- Frontend ----------
-app.use(express.static(PUBLIC_DIR, { maxAge: env.isProd ? "1h" : 0, index: false }))
+//
+// Los assets se cachean fuerte, pero sus URLs llevan ?v=<BUILD>, que cambia
+// en cada arranque del proceso. Así un deploy invalida el cache solo.
+// Sin esto, tras actualizar quedaba HTML nuevo con JavaScript viejo cacheado
+// — combinación silenciosa y difícil de diagnosticar.
+const BUILD = (process.env.BUILD_ID || Date.now().toString(36))
 
-app.get("/",      (req, res) => res.sendFile(path.join(PUBLIC_DIR, "login.html")))
-app.get("/login", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "login.html")))
-app.get("/admin", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "admin.html")))
-app.get("/app",   (req, res) => res.sendFile(path.join(PUBLIC_DIR, "crm.html")))
+app.use(express.static(PUBLIC_DIR, {
+  maxAge: env.isProd ? "7d" : 0,
+  index: false,
+  etag: true
+}))
+
+/** Lee el HTML una vez y le agrega ?v=BUILD a cada /assets/... */
+const paginasCache = new Map()
+function servirPagina(archivo) {
+  return (req, res) => {
+    let html = paginasCache.get(archivo)
+    if (!html) {
+      html = fs.readFileSync(path.join(PUBLIC_DIR, archivo), "utf8")
+        .replace(/(src|href)="(\/assets\/[^"]+)"/g, `$1="$2?v=${BUILD}"`)
+      paginasCache.set(archivo, html)
+    }
+    // El HTML nunca se cachea: es quien reparte las URLs versionadas.
+    res.set("Cache-Control", "no-store, must-revalidate")
+    res.type("html").send(html)
+  }
+}
+
+app.get("/",      servirPagina("login.html"))
+app.get("/login", servirPagina("login.html"))
+app.get("/admin", servirPagina("admin.html"))
+app.get("/app",   servirPagina("crm.html"))
 
 app.use(notFound)
 app.use(errorHandler)
