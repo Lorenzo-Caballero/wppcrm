@@ -71,14 +71,16 @@ function armarFiltros(tenantId, opciones = {}) {
   const {
     search = "", area = "", country = "", province = "",
     status = "", tag = "", quien = "", friosDias = 0,
-    soloNoLeidos = false, incluirArchivados = false
+    soloNoLeidos = false, archivados = ""
   } = opciones
 
   const where  = ["c.tenant_id = $1"]
   const params = [tenantId]
   let i = 1
 
-  if (!incluirArchivados) where.push("c.archived = FALSE")
+  // "" = solo activos (por defecto) · "1" = activos + archivados · "solo" = solo archivados
+  if (archivados === "solo")   where.push("c.archived = TRUE")
+  else if (archivados !== "1") where.push("c.archived = FALSE")
 
   // Búsqueda por nombre, teléfono, último mensaje y —opcionalmente— por
   // el contenido de toda la conversación.
@@ -506,6 +508,7 @@ async function resumenTenant(tenantId) {
   const r = await db.one(
     `SELECT
        (SELECT COUNT(*)::int FROM chats    WHERE tenant_id = $1)                                AS chats,
+       (SELECT COUNT(*)::int FROM chats    WHERE tenant_id = $1 AND archived)                   AS archivados,
        (SELECT COUNT(*)::int FROM chats    WHERE tenant_id = $1 AND unread_count > 0)           AS no_leidos,
        (SELECT COUNT(*)::int FROM contacts WHERE tenant_id = $1)                                AS contactos,
        (SELECT COUNT(*)::int FROM messages WHERE tenant_id = $1 AND sent_at > now() - interval '24 hours') AS mensajes_24h,

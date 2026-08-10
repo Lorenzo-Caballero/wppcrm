@@ -2,7 +2,8 @@
 const express = require("express")
 const multer  = require("multer")
 
-const db = require("../config/db")
+const db  = require("../config/db")
+const log = require("../utils/logger")
 const { asyncHandler } = require("../middleware/error")
 const { requiereAuth, resolverTenant } = require("../middleware/auth")
 const chatService    = require("../services/chat.service")
@@ -85,8 +86,8 @@ function filtrosDeQuery(q) {
     quien:             q.quien  || "",
     friosDias:         parseInt(q.frios, 10) || 0,
     orden:             q.orden  || "reciente",
-    soloNoLeidos:      q.noleidos   === "1",
-    incluirArchivados: q.archivados === "1",
+    soloNoLeidos:      q.noleidos === "1",
+    archivados:        q.archivados || "",   // "" | "1" (incluir) | "solo"
     // Buscar dentro del historial completo, no solo en el último mensaje.
     // Se puede apagar desde la UI si se quiere una búsqueda más liviana.
     enMensajes:        q.enmensajes !== "0"
@@ -136,6 +137,34 @@ router.post("/masivo", asyncHandler(async (req, res) => {
   const { ids, accion, valor } = req.body
   if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: "No hay chats seleccionados" })
   if (ids.length > 20000)                  return res.status(400).json({ error: "Demasiados chats de una vez" })
+
+  // Archivar y desarchivar tienen que replicarse en WhatsApp. Si solo se
+  // tocara nuestra base, la próxima sincronización leería el estado real
+  // desde el teléfono y desharía el cambio sin avisar.
+  let enWhatsapp = 0, fallidos = 0
+  if (accion === "archivar" || accion === "desarchivar") {
+    const chats  = await chatService.chatsPorIds(req.tenantId, ids)
+    const sesion = await sesionDeChat(req.tenantId, null)
+    const activo = sesion && sessionManager.obtenerCliente(sesion.session_key)
+
+    if (!activo) {
+      return res.status(400).json({
+        error: "WhatsApp no está conectado. Sin conexión el archivado se revertiría en la próxima sincronización."
+      })
+    }
+
+    for (const c of chats) {
+      try {
+        await actions.archivar(sesion, { id: c.id, wa_chat_id: c.wa_chat_id }, accion === "archivar")
+        enWhatsapp++
+      } catch (e) {
+        fallidos++
+        log.warn("masivo", "no pude archivar " + c.wa_chat_id + ": " + e.message)
+      }
+    }
+    // actions.archivar ya actualizó cada fila; no hace falta el UPDATE masivo.
+    return res.json({ afectados: enWhatsapp, fallidos })
+  }
 
   res.json(await chatService.accionMasiva(req.tenantId, ids, accion, valor))
 }))

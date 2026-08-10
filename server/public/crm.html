@@ -95,8 +95,15 @@
             <button class="btn btn-sm" id="btn-sync" title="Traer los chats desde WhatsApp">
               <svg class="ico"><use href="#i-refrescar"></use></svg>
             </button>
+            <!-- En celular los filtros van plegados: si no, la cabecera se
+                 come la pantalla y no queda lugar para los chats -->
+            <button class="btn btn-sm solo-movil" id="toggle-filtros" title="Filtros">
+              <svg class="ico"><use href="#i-ajustes"></use></svg>
+              <span class="badge hidden" id="filtros-activos"></span>
+            </button>
           </div>
 
+          <div id="panel-filtros">
           <label class="switch tiny" id="fila-en-mensajes">
             <input type="checkbox" id="buscar-en-mensajes" checked><span class="track"></span>
             <span class="muted">Buscar también dentro de los mensajes</span>
@@ -130,17 +137,14 @@
               <option value="60">Callados +60 días</option>
               <option value="90">Callados +90 días</option>
             </select>
+            <select class="select grow" id="filtro-archivados">
+              <option value="">Sin archivados</option>
+              <option value="1">Incluir archivados</option>
+              <option value="solo">Solo archivados</option>
+            </select>
           </div>
 
           <div class="row wrap" id="filtro-tags" style="gap:5px"></div>
-
-          <div class="row" style="justify-content:space-between">
-            <label class="switch tiny">
-              <input type="checkbox" id="solo-noleidos"><span class="track"></span>
-              <span class="muted">Solo no leídos</span>
-            </label>
-            <span class="tiny dim" id="chatlist-total"></span>
-          </div>
 
           <div class="row" style="gap:6px">
             <button class="btn btn-sm grow hidden" id="btn-limpiar">
@@ -155,6 +159,16 @@
             <button class="btn btn-sm" id="btn-exportar" title="Exportar a CSV">
               <svg class="ico"><use href="#i-descargar"></use></svg>
             </button>
+          </div>
+          </div><!-- /panel-filtros -->
+
+          <!-- Fuera del panel plegable: se ven siempre -->
+          <div class="row" style="justify-content:space-between">
+            <label class="switch tiny">
+              <input type="checkbox" id="solo-noleidos"><span class="track"></span>
+              <span class="muted">Solo no leídos</span>
+            </label>
+            <span class="tiny dim" id="chatlist-total"></span>
           </div>
 
           <!-- Barra de selección múltiple (Ctrl+click / Shift+click) -->

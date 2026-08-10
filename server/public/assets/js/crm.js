@@ -159,6 +159,14 @@ async function refrescarResumen() {
       punto.textContent = r.no_leidos > 99 ? "99+" : String(r.no_leidos || "")
       punto.classList.toggle("visible", r.no_leidos > 0)
     }
+
+    // Cuántos archivados hay, directo en las opciones del filtro
+    const sel = $("#filtro-archivados")
+    if (sel) {
+      const n = r.archivados ? " (" + nEsp(r.archivados) + ")" : ""
+      sel.options[1].textContent = "Incluir archivados" + n
+      sel.options[2].textContent = "Solo archivados" + n
+    }
   } catch (_) {}
 }
 
@@ -248,12 +256,26 @@ function limpiarAutocompletado() {
 window.addEventListener("pageshow", () => setTimeout(limpiarAutocompletado, 100))
 window.addEventListener("focus",    () => setTimeout(limpiarAutocompletado, 100))
 
-$$("#filtro-zona, #filtro-orden, #filtro-quien, #filtro-frios, #solo-noleidos, #buscar-en-mensajes")
+$$("#filtro-zona, #filtro-orden, #filtro-quien, #filtro-frios, #filtro-archivados, #solo-noleidos, #buscar-en-mensajes")
   .forEach(el => el.addEventListener("change", cargarChats))
 
 // El toggle de búsqueda en mensajes solo tiene sentido si hay algo escrito.
 function actualizarVisibilidadBusqueda() {
   $("#fila-en-mensajes").classList.toggle("hidden", busquedaTecleada.trim().length < 3)
+}
+
+/* ---------------- Filtros plegables (celular) ---------------- */
+$("#toggle-filtros").addEventListener("click", () => {
+  document.querySelector(".chatlist-head").classList.toggle("filtros-abiertos")
+})
+
+/** Contador sobre el botón de filtros: cuántos hay puestos. */
+function actualizarContadorFiltros() {
+  const f = filtrosActuales()
+  const puestos = [f.area, f.pais, f.quien, f.frios, f.tag, f.noleidos, f.archivados].filter(Boolean).length
+  const badge = $("#filtros-activos")
+  badge.textContent = puestos
+  badge.classList.toggle("hidden", puestos === 0)
 }
 
 $("#btn-limpiar").addEventListener("click", () => {
@@ -262,6 +284,7 @@ $("#btn-limpiar").addEventListener("click", () => {
   $("#filtro-zona").value = ""
   $("#filtro-quien").value = ""
   $("#filtro-frios").value = ""
+  $("#filtro-archivados").value = ""
   $("#filtro-orden").value = "reciente"
   $("#solo-noleidos").checked = false
   tagActivo = ""
@@ -322,6 +345,7 @@ function filtrosActuales() {
     orden:      $("#filtro-orden").value,
     quien:      $("#filtro-quien").value,
     frios:      $("#filtro-frios").value,
+    archivados: $("#filtro-archivados").value,
     tag:        tagActivo,
     noleidos:   $("#solo-noleidos").checked ? "1" : "",
     enmensajes: $("#buscar-en-mensajes").checked ? "" : "0",   // "" = por defecto (activado)
@@ -332,7 +356,7 @@ function filtrosActuales() {
 
 function hayFiltrosActivos() {
   const f = filtrosActuales()
-  return !!(f.q || f.quien || f.frios || f.tag || f.noleidos || f.area || f.pais)
+  return !!(f.q || f.quien || f.frios || f.tag || f.noleidos || f.area || f.pais || f.archivados)
 }
 
 const PAGINA_CHATS = 60
@@ -436,6 +460,7 @@ function pintarChats({ append = false } = {}) {
     : ""
   $("#btn-limpiar").classList.toggle("hidden", !filtrando)
   $("#btn-difundir-filtro").classList.toggle("hidden", !filtrando || !chats.length)
+  actualizarContadorFiltros()
 
   if (!chats.length) {
     // Distinguir "no tenés chats" de "el filtro no encontró nada" evita
@@ -443,9 +468,15 @@ function pintarChats({ append = false } = {}) {
     cont.innerHTML = filtrando
       ? `<div class="empty" style="padding:50px 24px">
            <div>
-             ${ico("buscar", "ico-xl dim")}
-             <div class="h3" style="margin-top:12px">Sin resultados</div>
-             <div class="muted small" style="margin-top:6px">Ningún chat coincide con los filtros actuales.</div>
+             ${ico(filtrosActuales().archivados === "solo" ? "archivar" : "buscar", "ico-xl dim")}
+             <div class="h3" style="margin-top:12px">
+               ${filtrosActuales().archivados === "solo" ? "No hay chats archivados" : "Sin resultados"}
+             </div>
+             <div class="muted small" style="margin-top:6px">
+               ${filtrosActuales().archivados === "solo"
+                 ? "Cuando archives un chat va a aparecer acá."
+                 : "Ningún chat coincide con los filtros actuales."}
+             </div>
              <button class="btn btn-sm" style="margin-top:14px" data-accion="limpiar">Limpiar filtros</button>
            </div></div>`
       : `<div class="empty" style="padding:50px 24px">
@@ -595,9 +626,18 @@ $("#sel-acciones").addEventListener("click", e => {
 })
 
 async function masivo(ids, accion, valor) {
+  const esArchivar = accion === "archivar" || accion === "desarchivar"
+  if (esArchivar && ids.length > 40) {
+    const ok = await confirmar(
+      "Archivar en WhatsApp va de a un chat por vez, así que " + ids.length +
+      " puede tardar un rato. ¿Seguimos?", "Sí, archivar")
+    if (!ok) return
+  }
+
   try {
     const r = await API.post(u("/chats/masivo"), { ids, accion, valor })
-    toast(r.afectados + " chats actualizados")
+    const extra = r.fallidos ? " · " + r.fallidos + " fallaron" : ""
+    toast(r.afectados + " chats actualizados" + extra, r.fallidos ? "warn" : "ok")
     limpiarSeleccion()
     cargarChats(); cargarTags(); refrescarResumen()
   } catch (e) { toast(e.message, "error") }
@@ -1418,11 +1458,22 @@ $("#conv-tags").addEventListener("click", async () => {
 $("#conv-menu").addEventListener("click", e => {
   if (!chatActivo) return
 
+  const AVISOS = {
+    archivar:    "Chat archivado · lo ves con el filtro “Solo archivados”",
+    desarchivar: "Chat desarchivado",
+    silenciar:   "Chat silenciado",
+    "no-leido":  "Marcado como no leído",
+    vaciar:      "Conversación vaciada",
+    bloquear:    "Contacto bloqueado"
+  }
+
   const accion = async (accion, extra = {}) => {
     try {
       await API.post(u("/chats/" + chatActivo.id + "/accion"), { accion, ...extra })
-      toast("Listo")
-      cargarChats()
+      toast(AVISOS[accion] || "Listo")
+      if (accion === "archivar")    chatActivo.archived = true
+      if (accion === "desarchivar") chatActivo.archived = false
+      cargarChats(); refrescarResumen()
     } catch (err) { toast(err.message, "error") }
   }
 
