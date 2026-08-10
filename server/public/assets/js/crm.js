@@ -204,10 +204,16 @@ async function cargarZonas() {
     const opcPais = paises.filter(p => p.country_code !== "54").map(p =>
       '<option value="pais:' + p.country_code + '">' + esc(p.country || p.country_code) + " (" + p.total + ")</option>").join("")
 
-    sel.innerHTML = '<option value="">Todas las zonas</option>' +
+    const nuevo = '<option value="">Todas las zonas</option>' +
       (opcArg  ? '<optgroup label="Argentina">' + opcArg + "</optgroup>" : "") +
       (opcPais ? '<optgroup label="Otros países">' + opcPais + "</optgroup>" : "")
-    sel.value = previo
+
+    // Reescribir el select cierra su desplegable si el usuario lo tenía
+    // abierto. Solo lo tocamos si el contenido cambió de verdad.
+    if (sel.innerHTML !== nuevo) {
+      sel.innerHTML = nuevo
+      sel.value = previo
+    }
   } catch (_) {}
 }
 
@@ -700,8 +706,12 @@ async function exportarCsv(ids) {
 $("#btn-exportar").addEventListener("click", () => exportarCsv([...seleccion]))
 
 // Scroll infinito: al acercarse al final, pide el tramo siguiente.
+// El scrollTop > 0 es importante: al repintar la lista ponemos scrollTop = 0,
+// lo que dispara este evento, y sin ese chequeo se encadenaban pedidos solos.
 $("#chatlist-body").addEventListener("scroll", e => {
   const el = e.target
+  if (el.scrollTop <= 0) return
+  if (el.scrollHeight <= el.clientHeight) return
   if (el.scrollTop + el.clientHeight >= el.scrollHeight - 320) {
     cargarChats({ append: true })
   }
@@ -796,6 +806,56 @@ function pintarMensajes(mensajes) {
   }
   cont.innerHTML = partes.join("")
   cont.scrollTop = cont.scrollHeight
+
+  traerMediaPendiente()
+}
+
+/**
+ * Baja las fotos, stickers y audios que todavía no tenemos, para que se
+ * vean en el chat sin que el operador tenga que pedirlos uno por uno.
+ * Va de a uno y de los más nuevos hacia atrás: así lo que está en pantalla
+ * aparece primero, y no saturamos al navegador de WhatsApp.
+ */
+let mediaEnCurso = false
+
+async function traerMediaPendiente() {
+  if (mediaEnCurso || !chatActivo) return
+
+  const AUTO = ["image", "sticker", "ptt", "audio"]
+  const pendientes = mensajesCargados
+    .filter(m => !m.media_url && AUTO.includes(m.type))
+    .slice(-15)          // los 15 más recientes: el resto queda a demanda
+    .reverse()
+  if (!pendientes.length) return
+
+  mediaEnCurso = true
+  const idChat = chatActivo.id
+
+  for (const m of pendientes) {
+    if (!chatActivo || chatActivo.id !== idChat) break   // cambió de chat
+
+    try {
+      const actualizado = await API.post(u("/chats/" + idChat + "/mensajes/" + m.id + "/descargar"))
+      const i = mensajesCargados.findIndex(x => x.id === actualizado.id)
+      if (i >= 0) mensajesCargados[i] = actualizado
+
+      // Reemplazamos solo esa burbuja: repintar todo perdería el scroll.
+      const fila = document.querySelector('.msg[data-id="' + actualizado.id + '"]')
+      if (fila) {
+        const anterior = mensajesCargados[i - 1] || null
+        fila.outerHTML = burbuja(actualizado, anterior)
+      }
+    } catch (_) {
+      // Un archivo vencido o borrado del teléfono: dejamos el marcador.
+      const fila = document.querySelector('.msg[data-id="' + m.id + '"] .doc')
+      if (fila) {
+        fila.classList.remove("cargando")
+        const sub = fila.querySelector(".doc-sub")
+        if (sub) sub.textContent = "No disponible"
+      }
+    }
+  }
+  mediaEnCurso = false
 }
 
 /** Bloque multimedia de una burbuja (imagen, video, audio o documento). */
@@ -803,17 +863,21 @@ function bloqueMedia(m) {
   const esMedia = ["image", "video", "audio", "ptt", "document", "sticker"].includes(m.type)
   if (!esMedia) return ""
 
-  // Todavía no lo bajamos de WhatsApp: se descarga al tocarlo.
+  // Todavía no lo bajamos de WhatsApp.
+  // Las fotos, stickers y notas de voz se traen solas al abrir el chat
+  // (ver traerMediaPendiente); mientras tanto se muestra un marcador.
   if (!m.media_url) {
     const ICONOS = { image: "imagen", video: "video", audio: "microfono",
                      ptt: "microfono", document: "documento", sticker: "sticker" }
-    return `<button class="doc" data-descargar="${m.id}">
+    const automatico = ["image", "sticker", "ptt", "audio"].includes(m.type)
+
+    return `<button class="doc ${automatico ? "cargando" : ""}" data-descargar="${m.id}">
               ${ico(ICONOS[m.type] || "clip", "ico-lg")}
               <span class="grow">
                 <span class="doc-nombre">${esc(m.media_name || nombrePorTipo(m.type))}</span>
-                <span class="doc-sub">Tocá para descargar</span>
+                <span class="doc-sub">${automatico ? "Cargando…" : "Tocá para descargar"}</span>
               </span>
-              ${ico("descargar", "ico-sm")}
+              ${automatico ? "" : ico("descargar", "ico-sm")}
             </button>`
   }
 
@@ -884,17 +948,28 @@ function burbuja(m, anterior = null) {
   const reaccion = m.reaction
     ? '<span class="reaccion">' + esc(m.reaction) + "</span>" : ""
   const estrella = m.starred ? ico("estrella", "ico-sm lleno-estrella") : ""
-  const soloMedia = !m.body && bloqueMedia(m) !== ""
 
+  const media     = bloqueMedia(m)
+  const soloMedia = !m.body && media !== ""
+
+  // Un mensaje sin texto ni archivo (una notificación, por ejemplo) dejaba
+  // una burbuja vacía con la hora suelta adentro. Le ponemos su descripción.
+  const cuerpo = m.body
+    ? formatoWhatsapp(m.body)
+    : (media ? "" : '<i class="dim">' + esc(nombrePorTipo(m.type)) + "</i>")
+
+  // OJO con el orden: la hora va ANTES del texto y flotada a la derecha,
+  // para que el texto la rodee y quede al final de la última línea, como en
+  // WhatsApp. Si va después, siempre cae en un renglón aparte.
   return `<div class="msg ${lado} ${seguido ? "seguido" : ""}"
                data-msg="${esc(m.wa_msg_id || "")}" data-id="${m.id}">
     <button class="msg-accion" data-menu-msg="${m.id}" title="Acciones">
       ${ico("mas-vertical", "ico-sm")}
     </button>
     <div class="bubble ${soloMedia ? "solo-media" : ""}">
-      ${autor}${citado}${bloqueMedia(m)}
-      ${m.body ? '<div class="texto">' + formatoWhatsapp(m.body) + "</div>" : ""}
+      ${autor}${citado}${media}
       <span class="stamp">${estrella}${esc(horaCorta(m.sent_at))}${marcaEntrega(m)}</span>
+      ${cuerpo ? '<span class="texto">' + cuerpo + "</span>" : ""}
       ${reaccion}
     </div>
   </div>`

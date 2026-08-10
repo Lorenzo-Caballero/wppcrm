@@ -25,6 +25,29 @@ function describirMensaje(msg) {
 }
 
 /**
+ * Elige el identificador con el que guardar el chat.
+ *
+ * WhatsApp está migrando a los @lid: 15 dígitos que NO son un teléfono, sin
+ * prefijo de país ni código de área. Si guardamos eso, el contacto queda sin
+ * zona y con un "número" inservible. El mensaje suele traer también el jid
+ * real en algún campo, así que lo preferimos cuando está.
+ */
+function jidPreferido(msg) {
+  const candidatos = [
+    msg.from,
+    msg.sender?.id,
+    msg.author,
+    msg.sender?.id?._serialized,
+    msg.chat?.contact?.id?._serialized
+  ]
+  for (const c of candidatos) {
+    const s = typeof c === "string" ? c : c?._serialized
+    if (typeof s === "string" && s.endsWith("@c.us")) return s
+  }
+  return msg.from
+}
+
+/**
  * Registra un mensaje entrante. Devuelve { chat, message } o null si se ignoró.
  * @param {object} sesion  fila de wa_sessions
  */
@@ -36,7 +59,7 @@ async function procesarMensajeEntrante(sesion, msg) {
     if (msg.type === "notification")     return null
     if (msg.type === "notification_template") return null
 
-    const jid = msg.from
+    const jid = jidPreferido(msg)
     if (!jid || !/@(c\.us|lid)$/.test(jid)) return null
 
     const contacto = await chatService.upsertContacto(sesion.tenant_id, {

@@ -408,8 +408,26 @@ async function paginaDeChatsEnDisco(client, desde, cuantos) {
             // Solo conversaciones individuales: fuera grupos, listas de
             // difusión, canales y el pseudo-chat de estados.
             if (typeof id === "string" && /@(c\.us|lid)$/.test(id)) {
+              // WhatsApp está migrando a identificadores @lid, que NO son
+              // teléfonos (15 dígitos arbitrarios). Sin el número real no hay
+              // código de área que detectar, así que lo buscamos donde suele
+              // quedar guardado el equivalente.
+              let telefono = null
+              if (id.endsWith("@lid")) {
+                const posibles = [
+                  v.pnJid, v.phoneNumber, v.pn,
+                  v.contact?.id?._serialized, v.contact?.phoneNumber,
+                  v.lidOriginalJid, v.originalJid
+                ]
+                for (const p of posibles) {
+                  const s = typeof p === "string" ? p : p?._serialized
+                  if (typeof s === "string" && s.endsWith("@c.us")) { telefono = s; break }
+                }
+              }
+
               items.push({
-                jid:      id,
+                jid:      telefono || id,
+                jidLid:   telefono ? id : null,
                 name:     v.name || v.formattedTitle || null,
                 pushname: v.notifyName || null,
                 t:        typeof v.t === "number" ? v.t : null,
@@ -494,8 +512,85 @@ async function traerChatsDeWhatsapp(client) {
  * Trae la lista de chats de WhatsApp y la vuelca en la base.
  * Es lo que llena el CRM la primera vez y lo que alimenta las difusiones.
  */
+/**
+ * Traduce un identificador @lid al teléfono real preguntándole a WhatsApp.
+ * Devuelve el jid original si no se puede resolver.
+ *
+ * Los @lid son la nueva identidad "sin número" de WhatsApp: 15 dígitos que
+ * no tienen prefijo de país ni código de área. Si se guardan así, el CRM
+ * no puede deducir la zona ni mostrar un teléfono usable.
+ */
+async function resolverLid(client, jid) {
+  if (!jid || !jid.endsWith("@lid")) return jid
+
+  // API de wppconnect v2 (puede no existir en versiones viejas)
+  if (typeof client.getPnLidEntry === "function") {
+    try {
+      const r = await client.getPnLidEntry(jid)
+      const pn = r?.pn?._serialized || r?.pn || r?.phoneNumber || r?.[0]?.pn
+      if (typeof pn === "string" && pn.endsWith("@c.us")) return pn
+    } catch (_) { /* seguimos con el plan B */ }
+  }
+
+  // Plan B: buscar la equivalencia dentro de la página.
+  try {
+    const pn = await client.page.evaluate(async (lid) => {
+      const sacar = v => (typeof v === "string" ? v : v?._serialized) || null
+      try {
+        const wid = WPP?.whatsapp?.WidFactory?.createWid?.(lid)
+        const dir = WPP?.whatsapp?.LidStore || WPP?.whatsapp?.PnLidStore
+        const entrada = dir?.get?.(wid || lid)
+        const pn = sacar(entrada?.pn) || sacar(entrada?.phoneNumber)
+        if (pn) return pn
+
+        const contacto = WPP?.whatsapp?.ContactStore?.get?.(wid || lid)
+        return sacar(contacto?.phoneNumber) || sacar(contacto?.pnJid)
+      } catch (_) { return null }
+    }, jid)
+
+    if (typeof pn === "string" && pn.endsWith("@c.us")) return pn
+  } catch (_) { /* nos quedamos con el @lid */ }
+
+  return jid
+}
+
+/**
+ * Un chat que antes se guardó con su @lid y ahora resolvió al teléfono real
+ * generaría una fila nueva y quedarían dos entradas del mismo contacto.
+ * Acá se unifica: si el teléfono todavía no existe, se renombra la fila
+ * vieja (conservando su historial); si ya existe, se descarta la del @lid.
+ */
+async function migrarLidATelefono(tenantId, lidJid, telJid) {
+  const viejo = await db.one(
+    "SELECT id FROM contacts WHERE tenant_id = $1 AND jid = $2", [tenantId, lidJid])
+  if (!viejo) return
+
+  const yaEstaba = await db.one(
+    "SELECT id FROM contacts WHERE tenant_id = $1 AND jid = $2", [tenantId, telJid])
+
+  if (yaEstaba) {
+    // Duplicado: el bueno es el que tiene teléfono. Sus chats y mensajes
+    // caen por CASCADE.
+    await db.query("DELETE FROM contacts WHERE id = $1", [viejo.id])
+    log.debug("lid", "descartado duplicado " + lidJid)
+    return
+  }
+
+  await db.query("UPDATE chats    SET wa_chat_id = $3 WHERE tenant_id = $1 AND wa_chat_id = $2",
+    [tenantId, lidJid, telJid])
+  await db.query("UPDATE contacts SET jid = $3        WHERE tenant_id = $1 AND jid = $2",
+    [tenantId, lidJid, telJid])
+  log.debug("lid", lidJid + " -> " + telJid)
+}
+
 /** Guarda un chat (objeto plano de paginaDeChats) en la base. */
 async function guardarChatSincronizado(sesion, item) {
+  // Antes del upsert: si este chat venía guardado con su @lid, unificarlo.
+  if (item.jidLid) {
+    try { await migrarLidATelefono(sesion.tenant_id, item.jidLid, item.jid) }
+    catch (e) { log.warn("lid", "no pude migrar " + item.jidLid + ": " + e.message) }
+  }
+
   const contacto = await chatService.upsertContacto(sesion.tenant_id, {
     jid: item.jid, name: item.name, pushName: item.pushname
   })
@@ -541,7 +636,7 @@ async function sincronizarChats(sesion, { tamanoPagina = 500, maximo = 50000 } =
     (desdeDisco ? "IndexedDB (" + enDisco + " registros)" : "el store en memoria") +
     ", tramos de " + tamanoPagina)
 
-  let desde = 0, guardados = 0, omitidos = 0, total = 0, tramos = 0
+  let desde = 0, guardados = 0, omitidos = 0, total = 0, tramos = 0, resueltos = 0
 
   while (desde < maximo) {
     let pagina
@@ -566,8 +661,16 @@ async function sincronizarChats(sesion, { tamanoPagina = 500, maximo = 50000 } =
     if (!pagina.leidos) break
 
     for (const item of pagina.items) {
-      try { await guardarChatSincronizado(sesion, item); guardados++ }
-      catch (e) { omitidos++; log.debug("sync", e.message) }
+      try {
+        // Los @lid que no se resolvieron dentro de la página se consultan acá.
+        // Es una ida y vuelta al navegador, así que solo para los que hagan falta.
+        if (item.jid.endsWith("@lid")) {
+          const real = await resolverLid(client, item.jid)
+          if (real !== item.jid) { item.jidLid = item.jid; item.jid = real; resueltos++ }
+        }
+        await guardarChatSincronizado(sesion, item)
+        guardados++
+      } catch (e) { omitidos++; log.debug("sync", e.message) }
     }
 
     desde += pagina.leidos
@@ -585,9 +688,10 @@ async function sincronizarChats(sesion, { tamanoPagina = 500, maximo = 50000 } =
     return { ok: false, mensaje: "WhatsApp todavía no cargó los chats, probá de nuevo en un minuto" }
   }
 
-  log.ok("wa:" + key, "sincronizados " + guardados + "/" + total + " chats en " + tramos + " tramo(s)")
-  bus.aTenant(sesion.tenant_id, "chats:synced", { guardados, omitidos, total, tramos })
-  return { ok: true, guardados, omitidos, total, tramos }
+  log.ok("wa:" + key, "sincronizados " + guardados + "/" + total + " chats en " + tramos +
+    " tramo(s)" + (resueltos ? " · " + resueltos + " @lid traducidos a teléfono" : ""))
+  bus.aTenant(sesion.tenant_id, "chats:synced", { guardados, omitidos, total, tramos, resueltos })
+  return { ok: true, guardados, omitidos, total, tramos, resueltos }
 }
 
 /** Camino viejo, por si el store interno deja de estar accesible. */

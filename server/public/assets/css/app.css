@@ -279,8 +279,17 @@ button, input, select, textarea { font: inherit; color: inherit; }
   background: var(--bg-1);
 }
 .chatlist-head { padding: 14px 14px 10px; border-bottom: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 10px; }
-.chatlist-filters { display: flex; gap: 7px; }
-.chatlist-filters .select { padding: 6px 28px 6px 9px; font-size: 12px; background-color: var(--bg-2); }
+.chatlist-filters { display: flex; gap: 7px; flex-wrap: wrap; }
+.chatlist-filters .select {
+  padding: 7px 28px 7px 10px; font-size: 12.5px;
+  background-color: var(--bg-2);
+  /* Sin min-width, .grow (que trae min-width:0) los encoge hasta 0 px
+     cuando el panel es angosto — y un select de ancho cero no se puede
+     abrir: parece que estuviera roto. */
+  min-width: 140px;
+  flex: 1 1 140px;
+  text-overflow: ellipsis;
+}
 .chatlist-body { flex: 1; overflow-y: auto; }
 
 .chat-item {
@@ -393,14 +402,21 @@ button, input, select, textarea { font: inherit; color: inherit; }
   background: radial-gradient(circle at 0 0, transparent 9px, #0d5a44 9px);
 }
 
-.bubble .texto { margin-bottom: 2px; }
+/* El texto es inline para que rodee a la hora flotada */
+.bubble .texto { display: inline; }
 
-/* La hora flota al final del texto, como en WhatsApp */
+/* Contiene el float sin recortar: overflow:hidden cortaría la colita,
+   que está posicionada fuera de la burbuja. */
+.bubble::after { content: ""; display: block; clear: both; }
+
+/* La hora flota a la derecha y va ANTES del texto en el HTML, así queda
+   al final de la última línea en vez de ocupar un renglón propio. */
 .bubble .stamp {
   float: right;
   display: inline-flex; align-items: center; gap: 3px;
   font-size: 10.5px; color: var(--tx-3);
-  margin: 6px 0 0 10px; user-select: none;
+  margin: 5px 0 0 12px; user-select: none;
+  position: relative; top: 4px;          /* alinea con la base del texto */
 }
 .msg.out .bubble .stamp { color: rgba(209,250,229,.6); }
 .bubble .stamp .marca { display: inline-flex; }
@@ -629,6 +645,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
   transition: background .14s;
 }
 .bubble .doc:hover { background: rgba(255,255,255,.11); }
+/* Mientras se baja el archivo solo: no invita a tocarlo */
+.bubble .doc.cargando { cursor: default; opacity: .7; }
+.bubble .doc.cargando .ico { animation: latir 1.3s ease-in-out infinite; }
+@keyframes latir { 0%,100% { opacity: .45 } 50% { opacity: 1 } }
 .bubble .doc .grow { display: flex; flex-direction: column; min-width: 0; }
 .bubble .doc .doc-nombre {
   font-size: 13px; font-weight: 550;
