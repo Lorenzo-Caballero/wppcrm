@@ -23,6 +23,10 @@ services:
     restart: unless-stopped
     # Chromium necesita memoria compartida: sin esto las sesiones crashean.
     shm_size: "1gb"
+    # Publicado SOLO en loopback: lo alcanza un nginx del host, nunca internet.
+    # Si usás el nginx en contenedor (perfil "proxy"), esto es inofensivo.
+    ports:
+      - "127.0.0.1:3000:3000"
     depends_on:
       db:
         condition: service_healthy
@@ -46,10 +50,16 @@ services:
       - wa_media:/app/data/media
     networks: [wppcrm]
 
+  # ------------------------------------------------------------------
+  #  nginx y certbot solo arrancan con:  docker compose --profile proxy up -d
+  #  Si el VPS ya tiene su propio nginx (sirviendo otros sitios), NO los uses:
+  #  dos nginx no pueden compartir el puerto 80. Ver DEPLOY.md, "Opción B".
+  # ------------------------------------------------------------------
   nginx:
     image: nginx:1.27-alpine
     container_name: wppcrm_nginx
     restart: unless-stopped
+    profiles: ["proxy"]
     depends_on: [app]
     ports:
       - "80:80"
@@ -67,6 +77,7 @@ services:
   certbot:
     image: certbot/certbot:latest
     container_name: wppcrm_certbot
+    profiles: ["proxy"]
     # Renueva el certificado cada 12 h. La primera emisión es manual (ver DEPLOY.md).
     entrypoint: /bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done;'
     volumes:

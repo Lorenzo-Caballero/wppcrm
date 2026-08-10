@@ -7,22 +7,43 @@ Node ni Postgres a mano en el servidor.
 
 ## 0. Qué vas a levantar
 
+El servidor de WhatsApp **corre dentro del contenedor `app`**, en tu VPS. El
+subdominio solo expone un nginx que hace de proxy hacia ese contenedor.
+
+**Antes de nada, mirá si el VPS ya tiene nginx sirviendo otros sitios:**
+
+```bash
+ss -tlnp | grep -E ':80 |:443 '
+nginx -T 2>/dev/null | grep server_name | sort -u
+```
+
+De ahí salen dos caminos. Dos nginx **no pueden** compartir el puerto 80, así que
+elegí uno y seguí solo los pasos de esa opción.
+
+### Opción A — VPS limpio (nada escuchando en el 80)
+
+Todo en Docker, incluido el proxy y la renovación del certificado.
+
 ```
 Internet
-   │
-   ├─ :80 / :443  ──►  nginx  (proxy inverso + HTTPS)
-   │                     │
-   │                     ├─► /            ──►  app:3000   (CRM + API)
-   │                     └─► /socket.io/  ──►  app:3000   (WebSocket: QR, mensajes, progreso)
-   │
-   └─ certbot (renueva el certificado solo cada 12 h)
-
-app  ─► postgres (datos)
-     ─► Chromium × N  (una sesión de WhatsApp por cliente)
+   └─ :80 / :443 ──► nginx (contenedor) ──► app:3000 ──► postgres
+                        └─ certbot renueva solo cada 12 h
 ```
 
-El servidor de WhatsApp **corre dentro del contenedor `app`**, en tu VPS.
-El subdominio solo expone nginx, que hace de proxy hacia ese contenedor.
+### Opción B — el VPS ya tiene nginx con otros sitios *(este es tu caso)*
+
+El nginx del sistema queda como única puerta de entrada y suma un server block
+para el CRM, al lado de los que ya tenías. Los contenedores `nginx` y `certbot`
+no se usan: quedan detrás del perfil `proxy` y no arrancan.
+
+```
+Internet
+   └─ :80 / :443 ──► nginx del host ──┬─► n8n.nahuelherrera.com  → localhost:5678
+                                      └─► wppcrm.llegadasqr.site → 127.0.0.1:3000 (contenedor app)
+```
+
+El contenedor `app` publica el puerto **solo en loopback** (`127.0.0.1:3000`), así
+que lo alcanza el nginx del host pero no se expone a internet.
 
 ---
 
@@ -102,7 +123,15 @@ docker compose version   # tiene que responder v2.x
 ## 4. Subir el proyecto
 
 **Opción A — con git** (recomendada para actualizar después):
+Setting up swapspace version 1, size = 4 GiB (4294963200 bytes)
+no label, UUID=e3c5f4d7-43ed-446d-857f-cd65fbf93c08
 
+
+
+dd4f2ba05ce0235876e989c2c172db2a8ac3c58b53c63cea54cb5c4e730e990bd5f29422fd6b389a691cbd9da71fc5bc
+
+
+ DATABASE_URL: postgres://wppcrm:5084ed365b8ee6be99e2ffc4d3a19469d6dde373b78cb938@db:5432/wppcrm
 ```bash
 sudo mkdir -p /opt/wppcrm && sudo chown $USER /opt/wppcrm
 git clone TU_REPO /opt/wppcrm
@@ -130,7 +159,7 @@ Completá **como mínimo** (ojo: va el subdominio completo, no el dominio raíz)
 ```ini
 DOMAIN=wppcrm.llegadasqr.site
 APP_URL=https://wppcrm.llegadasqr.site
-POSTGRES_PASSWORD=<password larga>
+POSTGRES_PASSWORD=<solo letras y números — ver aviso de abajo>
 JWT_SECRET=<pegá acá el resultado de: openssl rand -hex 48>
 COOKIE_SECURE=true
 OWNER_EMAIL=lorenzocaballerofernandez@gmail.com
@@ -138,18 +167,37 @@ OWNER_PASSWORD=<tu password de dueño>
 MAX_ACTIVE_SESSIONS=4
 ```
 
-Generá el secreto:
+Generá los dos valores así (salida alfanumérica, sin sorpresas):
 
 ```bash
-openssl rand -hex 48
+openssl rand -hex 24    # POSTGRES_PASSWORD
+openssl rand -hex 48    # JWT_SECRET
 ```
+
+> ⚠️ **`POSTGRES_PASSWORD` solo con letras y números.**
+> Se inserta dentro de una URL: `postgres://usuario:PASSWORD@db:5432/base`.
+> Un `#` la corta en seco (en una URL abre el fragmento), y `@ : / %` también
+> la rompen. El `$` ni siquiera llega: se lo come Docker Compose.
+> El síntoma es `No se pudo conectar a Postgres` aunque el contenedor `db`
+> figure sano. Para verificarlo antes de levantar:
+>
+> ```bash
+> docker compose config | grep DATABASE_URL
+> ```
+>
+> La URL tiene que terminar en `@db:5432/wppcrm`. Si se corta antes, cambiá
+> la password. Y si el volumen ya se creó con la anterior, hay que recrearlo:
+> `docker compose down -v` (borra la base, inofensivo solo antes del primer cliente).
 
 > `OPENAI_API_KEY` es **opcional**. Sin ella el sistema igual varía cada mensaje
 > con spintax + diccionario de sinónimos local, gratis y sin depender de internet.
 
 ---
 
-## 6. Primer arranque (solo HTTP)
+## 6. Arrancar la aplicación
+
+`docker compose up -d` levanta **solo `db` y `app`**. Los contenedores `nginx` y
+`certbot` están detrás del perfil `proxy` y no arrancan salvo que los pidas.
 
 ```bash
 cd /opt/wppcrm
@@ -166,13 +214,24 @@ Esperá a ver:
 [http] escuchando en el puerto 3000 (production)
 ```
 
-Probá: `http://wppcrm.llegadasqr.site` debería mostrar la pantalla de login.
+Comprobá que responde antes de tocar el proxy:
+
+```bash
+curl -I http://127.0.0.1:3000
+# HTTP/1.1 200 OK
+```
 
 ---
 
-## 7. Certificado HTTPS
+## 7. Publicarlo con HTTPS
 
-Emitilo una sola vez (después se renueva solo):
+### Opción A — proxy en Docker *(VPS sin nginx propio)*
+
+```bash
+docker compose --profile proxy up -d
+```
+
+Probá `http://wppcrm.llegadasqr.site` y después emitís el certificado:
 
 ```bash
 docker compose run --rm certbot certonly \
@@ -180,14 +239,27 @@ docker compose run --rm certbot certonly \
   -d wppcrm.llegadasqr.site \
   --email lorenzocaballerofernandez@gmail.com \
   --agree-tos --no-eff-email
-```
 
-Si dice `Successfully received certificate`, activá la configuración con HTTPS:
-
-```bash
 cp nginx/ssl/default-ssl.conf.template nginx/templates/default.conf.template
 docker compose restart nginx
 ```
+
+### Opción B — nginx del host *(el VPS ya sirve otros sitios)*
+
+Instalá el server block que viene en el repo y pedile el certificado a certbot:
+
+```bash
+cp /opt/wppcrm/nginx/host/wppcrm.conf /etc/nginx/sites-available/wppcrm
+ln -sf /etc/nginx/sites-available/wppcrm /etc/nginx/sites-enabled/wppcrm
+
+nginx -t && systemctl reload nginx
+
+apt-get install -y certbot python3-certbot-nginx      # si no lo tenías
+certbot --nginx -d wppcrm.llegadasqr.site
+```
+
+`certbot --nginx` edita el bloque solo: agrega el `listen 443`, el certificado y
+la redirección desde HTTP. Los demás sitios del nginx no se tocan.
 
 Verificá: `https://wppcrm.llegadasqr.site` con el candado cerrado.
 
@@ -195,6 +267,10 @@ Verificá: `https://wppcrm.llegadasqr.site` con el candado cerrado.
 > `-d www.llegadasqr.site`: esos nombres apuntan al CDN de Hostinger, la
 > validación de Let's Encrypt va a fallar y te quema intentos del límite
 > semanal (5 fallos por hora, 50 certificados por dominio por semana).
+
+> El bloque `location /socket.io/` con las cabeceras `Upgrade`/`Connection` es
+> **obligatorio** en cualquiera de las dos opciones. Sin él la app carga, pero el
+> QR no se refresca solo y los mensajes entrantes no aparecen hasta recargar.
 
 ---
 
