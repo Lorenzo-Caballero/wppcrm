@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CRM · wppcrm</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
+</head>
+<body>
+<div class="shell">
+
+  <!-- ==================== RAIL ==================== -->
+  <aside class="rail" id="rail">
+    <div class="rail-brand row">
+      <div class="brand-mark">W</div>
+      <div class="grow truncate">
+        <div class="brand-name truncate" id="tenant-name">—</div>
+        <div class="tiny dim row" style="gap:6px">
+          <span class="dot dot-off" id="wa-dot"></span>
+          <span id="wa-estado">Sin conectar</span>
+        </div>
+      </div>
+    </div>
+
+    <nav class="rail-nav">
+      <div class="rail-sec">Conversaciones</div>
+      <div class="nav-item active" data-vista="chats">
+        <span class="ico">💬</span> Chats
+        <span class="count" id="cnt-noleidos"></span>
+      </div>
+
+      <div class="rail-sec">Marketing</div>
+      <div class="nav-item" data-vista="difusiones"><span class="ico">📣</span> Difusiones</div>
+      <div class="nav-item" data-vista="plantillas"><span class="ico">📝</span> Plantillas</div>
+
+      <div class="rail-sec">Cuenta</div>
+      <div class="nav-item" data-vista="conexion"><span class="ico">📱</span> Conexión</div>
+      <div class="nav-item" data-vista="ajustes"><span class="ico">⚙️</span> Ajustes</div>
+    </nav>
+
+    <div class="rail-foot">
+      <div class="row" style="justify-content:space-between">
+        <div class="grow truncate">
+          <div class="small" style="font-weight:600" id="user-name">—</div>
+          <div class="tiny dim truncate" id="user-email">—</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="logout" title="Salir">⏻</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- ==================== CHATS ==================== -->
+    <div class="view" id="vista-chats">
+
+      <div class="chatlist" id="chatlist">
+        <div class="chatlist-head">
+          <div class="row">
+            <input class="input" id="buscar" placeholder="Buscar nombre, número o texto…" style="padding:8px 11px">
+            <button class="btn btn-sm" id="btn-sync" title="Traer los chats desde WhatsApp">⟳</button>
+          </div>
+          <div class="chatlist-filters">
+            <select class="select grow" id="filtro-zona"><option value="">Todas las zonas</option></select>
+            <select class="select" id="filtro-orden">
+              <option value="reciente">Recientes</option>
+              <option value="respuesta">Última respuesta</option>
+              <option value="noleidos">No leídos</option>
+              <option value="area">Por zona</option>
+              <option value="nombre">Por nombre</option>
+              <option value="antiguo">Más antiguos</option>
+            </select>
+          </div>
+          <div class="row" style="justify-content:space-between">
+            <label class="switch tiny">
+              <input type="checkbox" id="solo-noleidos"><span class="track"></span>
+              <span class="muted">Solo no leídos</span>
+            </label>
+            <span class="tiny dim" id="chatlist-total"></span>
+          </div>
+        </div>
+        <div class="chatlist-body" id="chatlist-body"></div>
+      </div>
+
+      <div class="conv" id="conv">
+        <div class="empty" id="conv-vacio">
+          <div>
+            <div class="ico">💬</div>
+            <div class="h2">Elegí una conversación</div>
+            <div class="muted small" style="margin-top:6px">
+              Si la lista está vacía, conectá WhatsApp y tocá el botón ⟳ para sincronizar.
+            </div>
+          </div>
+        </div>
+
+        <div id="conv-activa" class="hidden" style="display:flex;flex-direction:column;height:100%">
+          <div class="conv-head">
+            <button class="btn btn-ghost btn-sm hidden" id="volver-lista">←</button>
+            <div id="conv-avatar"></div>
+            <div class="grow truncate">
+              <div class="row" style="gap:8px">
+                <span style="font-weight:650" id="conv-nombre">—</span>
+                <span class="zone-tag" id="conv-zona"></span>
+              </div>
+              <div class="tiny dim" id="conv-sub">—</div>
+            </div>
+            <select class="select" id="conv-estado" style="width:auto;padding:6px 28px 6px 10px;font-size:12px">
+              <option value="abierto">Abierto</option>
+              <option value="pendiente">Pendiente</option>
+              <option value="cerrado">Cerrado</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" id="conv-pin" title="Fijar">📌</button>
+          </div>
+
+          <div class="conv-body" id="conv-body"></div>
+
+          <div class="conv-foot">
+            <div class="composer">
+              <textarea id="composer" rows="1" placeholder="Escribí un mensaje…  (Enter envía · Shift+Enter salta línea)"></textarea>
+              <button class="send-btn" id="enviar" title="Enviar">➤</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== DIFUSIONES ==================== -->
+    <div class="view hidden" id="vista-difusiones">
+      <div class="view-scroll">
+        <div class="view-head spread">
+          <div>
+            <div class="h1">Difusiones</div>
+            <div class="muted small">Envíos masivos con espera aleatoria y mensaje distinto para cada contacto</div>
+          </div>
+          <button class="btn btn-primary" id="btn-nueva-difusion">＋ Nueva difusión</button>
+        </div>
+        <div id="lista-difusiones" class="col" style="gap:12px"></div>
+      </div>
+    </div>
+
+    <!-- ==================== PLANTILLAS ==================== -->
+    <div class="view hidden" id="vista-plantillas">
+      <div class="view-scroll">
+        <div class="view-head spread">
+          <div>
+            <div class="h1">Plantillas</div>
+            <div class="muted small">Mensajes base reutilizables, con variantes y variables</div>
+          </div>
+          <button class="btn btn-primary" id="btn-nueva-plantilla">＋ Nueva plantilla</button>
+        </div>
+        <div id="lista-plantillas" class="grid-2"></div>
+      </div>
+    </div>
+
+    <!-- ==================== CONEXIÓN ==================== -->
+    <div class="view hidden" id="vista-conexion">
+      <div class="view-scroll">
+        <div class="view-head">
+          <div class="h1">Conexión de WhatsApp</div>
+          <div class="muted small">Vinculá tu teléfono escaneando el código QR</div>
+        </div>
+        <div id="lista-sesiones" class="col" style="gap:16px;max-width:640px"></div>
+      </div>
+    </div>
+
+    <!-- ==================== AJUSTES ==================== -->
+    <div class="view hidden" id="vista-ajustes">
+      <div class="view-scroll">
+        <div class="view-head">
+          <div class="h1">Ajustes</div>
+          <div class="muted small">Tu cuenta y los límites de tu plan</div>
+        </div>
+        <div class="grid-2" style="max-width:900px;align-items:start">
+          <div class="card col" style="gap:14px">
+            <div class="h3">Cambiar contraseña</div>
+            <div class="field">
+              <label class="label">Contraseña actual</label>
+              <input class="input" type="password" id="pw-actual" autocomplete="current-password">
+            </div>
+            <div class="field">
+              <label class="label">Contraseña nueva</label>
+              <input class="input" type="password" id="pw-nueva" autocomplete="new-password">
+              <div class="hint">Mínimo 8 caracteres.</div>
+            </div>
+            <button class="btn btn-primary" id="btn-pw">Actualizar</button>
+          </div>
+          <div class="card col" style="gap:12px">
+            <div class="h3">Tu plan</div>
+            <div id="info-plan" class="col" style="gap:9px"></div>
+            <div class="hint">
+              El tope diario es la cantidad máxima de mensajes de difusión que se envían por día.
+              Para ampliarlo, pedíselo al administrador de la plataforma.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/assets/js/core.js"></script>
+<script src="/assets/js/crm.js"></script>
+</body>
+</html>

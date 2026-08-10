@@ -1,0 +1,84 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: wppcrm_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: ${TZ}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [wppcrm]
+
+  app:
+    build: ./server
+    container_name: wppcrm_app
+    restart: unless-stopped
+    # Chromium necesita memoria compartida: sin esto las sesiones crashean.
+    shm_size: "1gb"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      TZ: ${TZ}
+      APP_URL: ${APP_URL}
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      COOKIE_SECURE: ${COOKIE_SECURE}
+      OWNER_EMAIL: ${OWNER_EMAIL}
+      OWNER_PASSWORD: ${OWNER_PASSWORD}
+      OWNER_NAME: ${OWNER_NAME}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL}
+      MAX_ACTIVE_SESSIONS: ${MAX_ACTIVE_SESSIONS}
+      CHROME_PATH: /usr/bin/chromium
+    volumes:
+      - wa_tokens:/app/data/tokens
+      - wa_media:/app/data/media
+    networks: [wppcrm]
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: wppcrm_nginx
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      TZ: ${TZ}
+      DOMAIN: ${DOMAIN}
+    volumes:
+      # Los .template pasan por envsubst y salen a /etc/nginx/conf.d (así ${DOMAIN} funciona)
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - ./nginx/certbot/www:/var/www/certbot:ro
+      - ./nginx/certbot/conf:/etc/letsencrypt:ro
+    networks: [wppcrm]
+
+  certbot:
+    image: certbot/certbot:latest
+    container_name: wppcrm_certbot
+    # Renueva el certificado cada 12 h. La primera emisión es manual (ver DEPLOY.md).
+    entrypoint: /bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done;'
+    volumes:
+      - ./nginx/certbot/www:/var/www/certbot
+      - ./nginx/certbot/conf:/etc/letsencrypt
+    networks: [wppcrm]
+
+volumes:
+  db_data:
+  wa_tokens:
+  wa_media:
+
+networks:
+  wppcrm:
+    driver: bridge

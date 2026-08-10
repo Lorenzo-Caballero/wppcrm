@@ -1,0 +1,36 @@
+# ============================================================
+#  PASO 1 — Solo HTTP.
+#  Sirve para que Let's Encrypt pueda validar el dominio la
+#  primera vez (ver DEPLOY.md). Una vez emitido el certificado
+#  reemplazá este archivo por nginx/ssl/default-ssl.conf.template.
+# ============================================================
+
+upstream wppcrm_app {
+    server app:3000;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN};
+
+    # Desafío ACME de Let's Encrypt
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    client_max_body_size 25m;
+
+    location / {
+        proxy_pass         http://wppcrm_app;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   Upgrade           $http_upgrade;
+        proxy_set_header   Connection        "upgrade";
+        proxy_read_timeout 300s;
+    }
+}

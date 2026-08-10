@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ingresar · wppcrm</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card col" style="gap:22px">
+
+      <div class="col" style="align-items:center;gap:12px;text-align:center">
+        <div class="brand-mark" style="width:46px;height:46px;border-radius:14px;font-size:22px">W</div>
+        <div>
+          <div class="h1">Bienvenido</div>
+          <div class="muted small">Ingresá para administrar tus conversaciones</div>
+        </div>
+      </div>
+
+      <form class="card col" id="form" style="gap:16px">
+        <div class="field">
+          <label class="label" for="email">Email</label>
+          <input class="input" id="email" type="email" autocomplete="username" required placeholder="tu@email.com">
+        </div>
+        <div class="field">
+          <label class="label" for="password">Contraseña</label>
+          <input class="input" id="password" type="password" autocomplete="current-password" required placeholder="••••••••">
+        </div>
+        <div id="error" class="small hidden" style="color:#fda4af"></div>
+        <button class="btn btn-primary btn-block" id="submit" type="submit">Ingresar</button>
+      </form>
+
+      <div class="tiny dim" style="text-align:center">
+        ¿Problemas para entrar? Escribile al administrador de la plataforma.
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/js/core.js"></script>
+  <script src="/assets/js/login.js"></script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+{
+  "name": "wppcrm-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CRM multi-cliente conectado a WhatsApp con motor de difusion anti-baneo",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "migrate": "node src/db/migrate.js"
+  },
+  "dependencies": {
+    "@wppconnect-team/wppconnect": "^2.2.6",
+    "bcryptjs": "^2.4.3",
+    "compression": "^1.7.5",
+    "cookie": "^0.6.0",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "node-fetch": "^2.7.0",
+    "pg": "^8.13.1",
+    "socket.io": "^4.8.1"
+  }
+}

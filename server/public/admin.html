@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Administración · wppcrm</title>
+  <link rel="stylesheet" href="/assets/css/app.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛠️</text></svg>">
+</head>
+<body>
+<div class="shell">
+
+  <aside class="rail">
+    <div class="rail-brand row">
+      <div class="brand-mark">W</div>
+      <div>
+        <div class="brand-name">wppcrm</div>
+        <div class="tiny dim">Panel del dueño</div>
+      </div>
+    </div>
+
+    <nav class="rail-nav">
+      <div class="rail-sec">Plataforma</div>
+      <div class="nav-item active" data-vista="clientes"><span class="ico">🏢</span> Clientes</div>
+      <div class="nav-item" data-vista="sesiones"><span class="ico">📱</span> Sesiones WhatsApp</div>
+      <div class="nav-item" data-vista="cuenta"><span class="ico">🔑</span> Mi cuenta</div>
+    </nav>
+
+    <div class="rail-foot">
+      <div class="row" style="justify-content:space-between">
+        <div class="grow truncate">
+          <div class="small" style="font-weight:600" id="owner-name">—</div>
+          <div class="tiny dim truncate" id="owner-email">—</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="logout" title="Salir">⏻</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="view">
+      <div class="view-scroll">
+
+        <!-- ============ CLIENTES ============ -->
+        <section id="vista-clientes">
+          <div class="view-head spread">
+            <div>
+              <div class="h1">Clientes</div>
+              <div class="muted small">Cada cliente tiene su propio CRM y su propia línea de WhatsApp</div>
+            </div>
+            <button class="btn btn-primary" id="btn-nuevo">＋ Nuevo cliente</button>
+          </div>
+
+          <div class="grid-4" id="stats" style="margin-bottom:22px"></div>
+
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Plan</th>
+                  <th>WhatsApp</th>
+                  <th>Chats</th>
+                  <th>Difusiones</th>
+                  <th>Tope diario</th>
+                  <th>Estado</th>
+                  <th style="text-align:right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="tabla-clientes">
+                <tr><td colspan="8" class="muted" style="text-align:center;padding:36px">Cargando…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ============ SESIONES ============ -->
+        <section id="vista-sesiones" class="hidden">
+          <div class="view-head">
+            <div class="h1">Sesiones de WhatsApp</div>
+            <div class="muted small">Estado de todas las líneas conectadas en el servidor</div>
+          </div>
+          <div class="grid-3" id="grid-sesiones"></div>
+        </section>
+
+        <!-- ============ CUENTA ============ -->
+        <section id="vista-cuenta" class="hidden">
+          <div class="view-head">
+            <div class="h1">Mi cuenta</div>
+            <div class="muted small">Cambiá la contraseña de acceso al panel</div>
+          </div>
+          <div class="card col" style="max-width:440px;gap:14px">
+            <div class="field">
+              <label class="label">Contraseña actual</label>
+              <input class="input" type="password" id="pw-actual" autocomplete="current-password">
+            </div>
+            <div class="field">
+              <label class="label">Contraseña nueva</label>
+              <input class="input" type="password" id="pw-nueva" autocomplete="new-password">
+              <div class="hint">Mínimo 8 caracteres.</div>
+            </div>
+            <button class="btn btn-primary" id="btn-pw">Actualizar contraseña</button>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/assets/js/core.js"></script>
+<script src="/assets/js/admin.js"></script>
+</body>
+</html>
