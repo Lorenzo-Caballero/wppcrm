@@ -251,8 +251,47 @@ async function detenerSesion(sesion) {
   return { ok: true }
 }
 
-/** Cierra sesión en el teléfono y borra los tokens: el próximo inicio pide QR nuevo. */
-async function cerrarSesionWhatsapp(sesion) {
+/**
+ * Borra de la base todo lo que traía esta línea de WhatsApp.
+ *
+ * Al desvincular, los datos quedan huérfanos: si se vincula otro número,
+ * mezclarlos con los nuevos sería incorrecto. Se limita a los chats de ESTA
+ * sesión — un cliente con varias líneas no pierde las otras.
+ *
+ * Los mensajes caen por CASCADE desde chats. Después se limpian los
+ * contactos que quedaron sin ningún chat asociado.
+ */
+async function limpiarDatosDeSesion(sesion) {
+  // Una difusión en curso no tiene sentido sin la línea que la enviaba.
+  await db.query(
+    `UPDATE campaigns SET status = 'cancelled', finished_at = now()
+      WHERE tenant_id = $1 AND session_id = $2 AND status IN ('running','paused','draft')`,
+    [sesion.tenant_id, sesion.id]
+  )
+
+  const chats = await db.query(
+    "DELETE FROM chats WHERE tenant_id = $1 AND session_id = $2",
+    [sesion.tenant_id, sesion.id]
+  )
+
+  const contactos = await db.query(
+    `DELETE FROM contacts c
+      WHERE c.tenant_id = $1
+        AND NOT EXISTS (SELECT 1 FROM chats ch WHERE ch.contact_id = c.id)`,
+    [sesion.tenant_id]
+  )
+
+  log.warn("wa:" + sesion.session_key,
+    "datos borrados: " + chats.rowCount + " chats, " + contactos.rowCount + " contactos")
+
+  return { chats: chats.rowCount, contactos: contactos.rowCount }
+}
+
+/**
+ * Cierra sesión en el teléfono, borra los tokens y limpia los datos.
+ * El próximo inicio pide QR nuevo y arranca de cero.
+ */
+async function cerrarSesionWhatsapp(sesion, { borrarDatos = true } = {}) {
   const registro = vivas.get(sesion.session_key)
   if (registro?.client) {
     try { await registro.client.logout() } catch (e) { log.warn("wa", "logout: " + e.message) }
@@ -266,8 +305,16 @@ async function cerrarSesionWhatsapp(sesion) {
     log.info("wa", "tokens borrados de", sesion.session_key)
   } catch (e) { log.warn("wa", "no pude borrar tokens: " + e.message) }
 
+  let borrados = null
+  if (borrarDatos) {
+    try { borrados = await limpiarDatosDeSesion(sesion) }
+    catch (e) { log.error("wa", "no pude limpiar los datos: " + e.message) }
+  }
+
   await setEstado(sesion, ESTADOS.DESCONECTADO, { phone: null })
-  return { ok: true }
+  bus.aTenant(sesion.tenant_id, "chats:borrados", borrados || { chats: 0, contactos: 0 })
+
+  return { ok: true, borrados }
 }
 
 function obtenerCliente(sessionKey) {
@@ -674,7 +721,7 @@ async function cerrarTodo() {
 
 module.exports = {
   ESTADOS,
-  iniciarSesion, detenerSesion, cerrarSesionWhatsapp,
+  iniciarSesion, detenerSesion, cerrarSesionWhatsapp, limpiarDatosDeSesion,
   obtenerCliente, estadoEnMemoria,
   sincronizarChats, importarHistorial, enviarDesdeCrm,
   autoIniciarSesiones, cerrarTodo, activas

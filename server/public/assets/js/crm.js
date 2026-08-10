@@ -1729,9 +1729,27 @@ function pintarSesiones() {
   }))
 
   cont.querySelectorAll("[data-logout]").forEach(b => b.addEventListener("click", async () => {
-    if (!await confirmar("Vas a desvincular esta línea. Para volver a usarla habrá que escanear el QR de nuevo.", "Desvincular")) return
-    try { await API.post(u("/sessions/" + b.dataset.logout + "/logout")); toast("Línea desvinculada"); cargarSesionesWa() }
-    catch (e) { toast(e.message, "error") }
+    const ok = await confirmar(
+      "Al desvincular esta línea se borran del CRM todos sus chats, mensajes y contactos. " +
+      "Las difusiones en curso se cancelan. Esto no se puede deshacer.\n\n" +
+      "Para volver a usarla vas a tener que escanear el QR otra vez.",
+      "Desvincular y borrar"
+    )
+    if (!ok) return
+
+    try {
+      const r = await API.post(u("/sessions/" + b.dataset.logout + "/logout"))
+      const n = r.borrados
+      toast(n ? "Línea desvinculada · " + nEsp(n.chats) + " chats borrados" : "Línea desvinculada")
+
+      // La vista de chats quedó apuntando a datos que ya no existen.
+      chatActivo = null
+      limpiarSeleccion()
+      $("#conv-activa").classList.add("hidden")
+      $("#conv-vacio").classList.remove("hidden")
+
+      cargarSesionesWa(); cargarChats(); cargarZonas(); cargarTags(); refrescarResumen()
+    } catch (e) { toast(e.message, "error") }
   }))
 
   cont.querySelectorAll("[data-sync]").forEach(b => b.addEventListener("click", async () => {
