@@ -76,18 +76,24 @@ async function resolverAudiencia(tenantId, filtros = {}, settings = {}) {
 
   if (!filtros.incluirArchivados) where.push("(c.archived IS NULL OR c.archived = FALSE)")
 
+  // ---- Zonas geográficas ----
+  // Van unidas con OR, no con AND: "difundir a Mar del Plata O a Rosario O a
+  // toda la provincia de Santa Fe". Con AND (como estaba antes) cualquier
+  // combinación de ciudad + provincia distinta devolvía cero contactos.
+  const geo = []
   if (Array.isArray(filtros.areas) && filtros.areas.length) {
     params.push(filtros.areas); i++
-    where.push(`ct.area_code = ANY($${i}::text[])`)
-  }
-  if (Array.isArray(filtros.paises) && filtros.paises.length) {
-    params.push(filtros.paises); i++
-    where.push(`ct.country_code = ANY($${i}::text[])`)
+    geo.push(`ct.area_code = ANY($${i}::text[])`)
   }
   if (Array.isArray(filtros.provincias) && filtros.provincias.length) {
     params.push(filtros.provincias); i++
-    where.push(`ct.province = ANY($${i}::text[])`)
+    geo.push(`ct.province = ANY($${i}::text[])`)
   }
+  if (Array.isArray(filtros.paises) && filtros.paises.length) {
+    params.push(filtros.paises); i++
+    geo.push(`ct.country_code = ANY($${i}::text[])`)
+  }
+  if (geo.length) where.push("(" + geo.join(" OR ") + ")")
   if (filtros.soloConRespuesta) where.push("c.last_inbound_at IS NOT NULL")
 
   if (filtros.tag) {

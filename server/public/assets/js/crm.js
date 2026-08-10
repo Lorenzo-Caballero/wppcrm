@@ -55,7 +55,17 @@ function conectarSocket() {
   socket.on("message:ack",     alAck)
   socket.on("campaign:progress", alProgresoDifusion)
   socket.on("campaign:status",   () => cargarDifusiones())
-  socket.on("chats:synced", r => { toast("Sincronizados " + r.guardados + " chats"); cargarChats(); cargarZonas() })
+  socket.on("chats:sync-progress", p => {
+    const b = $("#btn-sync")
+    b.textContent = Math.round(p.procesados / (p.total || 1) * 100) + "%"
+    b.title = "Sincronizando " + nEsp(p.procesados) + " de " + nEsp(p.total)
+  })
+  socket.on("chats:synced", r => {
+    const b = $("#btn-sync")
+    b.textContent = "⟳"; b.title = "Traer los chats desde WhatsApp"; b.disabled = false
+    toast("Sincronizados " + nEsp(r.guardados) + " chats" + (r.tramos > 1 ? " en " + r.tramos + " tramos" : ""))
+    cargarChats(); cargarZonas()
+  })
 }
 
 /* ============================================================
@@ -101,9 +111,13 @@ function pintarPlan() {
 /* ============================================================
    ZONAS (códigos de área)
    ============================================================ */
+let mapaAreas = {}   // "223" -> "Mar del Plata", para traducir códigos en la UI
+
 async function cargarZonas() {
   try {
     const { areas, paises } = await API.get(u("/chats/zonas"))
+    mapaAreas = Object.fromEntries(areas.map(a => [a.area_code, a.region]))
+
     const sel = $("#filtro-zona")
     const previo = sel.value
 
@@ -225,34 +239,104 @@ function hayFiltrosActivos() {
   return !!(f.q || f.quien || f.frios || f.tag || f.noleidos || f.area || f.pais)
 }
 
-async function cargarChats() {
+const PAGINA_CHATS = 60
+let hayMasChats  = false
+let cargandoMas  = false
+let renderizados = 0
+
+/**
+ * @param append true = agrega la página siguiente al final (scroll infinito)
+ */
+async function cargarChats({ append = false } = {}) {
   limpiarAutocompletado()
 
+  if (append && (cargandoMas || !hayMasChats)) return
+
   const f = filtrosActuales()
-  const params = new URLSearchParams({ limit: "120" })
+  const params = new URLSearchParams({
+    limit:  String(PAGINA_CHATS),
+    offset: String(append ? chats.length : 0)
+  })
   for (const [k, v] of Object.entries(f)) if (v) params.set(k, v)
 
-  const mia = ++cargaSeq
+  // Solo las cargas nuevas invalidan a las anteriores; las de scroll continúan.
+  const mia = append ? cargaSeq : ++cargaSeq
+  if (append) { cargandoMas = true; mostrarCargandoMas(true) }
+
   try {
     const r = await API.get(u("/chats?" + params.toString()))
     // Si mientras esperábamos salió otra consulta, esta respuesta ya no sirve:
     // pintarla haría "parpadear" la lista con datos viejos.
     if (mia !== cargaSeq) return
 
-    chats = r.chats || []
+    const lista   = r.chats || []
+    chats         = append ? chats.concat(lista) : lista
     totalFiltrado = r.total || 0
-    pintarChats()
+    hayMasChats   = chats.length < totalFiltrado
+
+    pintarChats({ append })
   } catch (e) {
     if (mia === cargaSeq) toast(e.message, "error")
+  } finally {
+    cargandoMas = false
+    mostrarCargandoMas(false)
   }
 }
 
-function pintarChats() {
+function mostrarCargandoMas(visible) {
+  let el = $("#cargando-mas")
+  if (!visible) { el?.remove(); return }
+  if (el) return
+  el = document.createElement("div")
+  el.id = "cargando-mas"
+  el.className = "tiny dim"
+  el.style.cssText = "padding:14px;text-align:center"
+  el.textContent = "Cargando más chats…"
+  $("#chatlist-body").appendChild(el)
+}
+
+function filaChat(c) {
+  const nombre = c.display_name
+  const activo = chatActivo && chatActivo.id === c.id
+  const tags   = (c.tags || []).map(t => '<span class="chip tiny">' + esc(t) + "</span>").join("")
+
+  // "Te escribió hace X" es el dato que más se mira para decidir a quién retomar.
+  const ultimaResp = c.last_inbound_at
+    ? "responde " + haceCuanto(c.last_inbound_at)
+    : "nunca respondió"
+
+  return `<div class="chat-item ${activo ? "active" : ""}" data-chat="${c.id}">
+    ${avatarHtml(nombre)}
+    <div class="grow" style="min-width:0">
+      <div class="top">
+        <span class="nm truncate">${esc(nombre)}</span>
+        <span class="tm">${esc(selloLista(c.last_message_at))}</span>
+      </div>
+      <div class="pv truncate">
+        ${c.last_direction === "out" ? '<span class="dim">vos: </span>' : ""}${esc(c.last_message_text || "—")}
+      </div>
+      <div class="meta">
+        ${c.region ? '<span class="zone-tag">' + esc(c.region) + "</span>" : ""}
+        ${tags}
+        ${c.status !== "abierto" ? '<span class="chip tiny">' + esc(c.status) + "</span>" : ""}
+        <span class="grow"></span>
+        <span class="tiny dim">${esc(ultimaResp)}</span>
+        <button class="btn-pin" data-pin="${c.id}" title="${c.pinned ? "Desfijar" : "Fijar arriba"}"
+                style="opacity:${c.pinned ? 1 : .3}">📌</button>
+        ${c.unread_count > 0 ? '<span class="badge">' + c.unread_count + "</span>" : ""}
+      </div>
+    </div>
+  </div>`
+}
+
+function pintarChats({ append = false } = {}) {
   const cont = $("#chatlist-body")
   const filtrando = hayFiltrosActivos()
 
   $("#chatlist-total").textContent = totalFiltrado
-    ? (chats.length < totalFiltrado ? chats.length + " de " + nEsp(totalFiltrado) : nEsp(totalFiltrado) + " chats")
+    ? (chats.length < totalFiltrado
+        ? nEsp(chats.length) + " de " + nEsp(totalFiltrado)
+        : nEsp(totalFiltrado) + " chats")
     : ""
   $("#btn-limpiar").classList.toggle("hidden", !filtrando)
   $("#btn-difundir-filtro").classList.toggle("hidden", !filtrando || !chats.length)
@@ -266,7 +350,7 @@ function pintarChats() {
              <div class="ico">🔍</div>
              <div class="h3">Sin resultados</div>
              <div class="muted small" style="margin-top:6px">Ningún chat coincide con los filtros actuales.</div>
-             <button class="btn btn-sm" style="margin-top:14px" onclick="document.getElementById('btn-limpiar').click()">Limpiar filtros</button>
+             <button class="btn btn-sm" style="margin-top:14px" data-accion="limpiar">Limpiar filtros</button>
            </div></div>`
       : `<div class="empty" style="padding:50px 24px">
            <div>
@@ -274,56 +358,49 @@ function pintarChats() {
              <div class="h3">No hay conversaciones</div>
              <div class="muted small" style="margin-top:6px">Conectá WhatsApp y tocá ⟳ para traer tus chats.</div>
            </div></div>`
+    renderizados = 0
     return
   }
 
-  cont.innerHTML = chats.map(c => {
-    const nombre = c.display_name
-    const activo = chatActivo && chatActivo.id === c.id
-    const tags   = (c.tags || []).map(t => '<span class="chip tiny">' + esc(t) + "</span>").join("")
+  if (append && renderizados && renderizados < chats.length) {
+    // Solo agregamos lo nuevo: repintar todo perdería la posición del scroll.
+    cont.insertAdjacentHTML("beforeend", chats.slice(renderizados).map(filaChat).join(""))
+  } else {
+    cont.innerHTML = chats.map(filaChat).join("")
+    if (!append) cont.scrollTop = 0
+  }
+  renderizados = chats.length
+}
 
-    // "Te escribió hace X" es el dato que más se mira para decidir a quién retomar.
-    const ultimaResp = c.last_inbound_at
-      ? "responde " + haceCuanto(c.last_inbound_at)
-      : "nunca respondió"
+// Delegación: un solo listener para toda la lista, así el scroll infinito
+// puede agregar filas sin volver a enganchar eventos (ni duplicarlos).
+$("#chatlist-body").addEventListener("click", async e => {
+  const limpiar = e.target.closest('[data-accion="limpiar"]')
+  if (limpiar) { $("#btn-limpiar").click(); return }
 
-    return `<div class="chat-item ${activo ? "active" : ""}" data-chat="${c.id}">
-      ${avatarHtml(nombre)}
-      <div class="grow" style="min-width:0">
-        <div class="top">
-          <span class="nm truncate">${esc(nombre)}</span>
-          <span class="tm">${esc(selloLista(c.last_message_at))}</span>
-        </div>
-        <div class="pv truncate">
-          ${c.last_direction === "out" ? '<span class="dim">vos: </span>' : ""}${esc(c.last_message_text || "—")}
-        </div>
-        <div class="meta">
-          ${c.region ? '<span class="zone-tag">' + esc(c.region) + "</span>" : ""}
-          ${tags}
-          ${c.status !== "abierto" ? '<span class="chip tiny">' + esc(c.status) + "</span>" : ""}
-          <span class="grow"></span>
-          <span class="tiny dim">${esc(ultimaResp)}</span>
-          <button class="btn-pin" data-pin="${c.id}" title="${c.pinned ? "Desfijar" : "Fijar arriba"}"
-                  style="opacity:${c.pinned ? 1 : .3}">📌</button>
-          ${c.unread_count > 0 ? '<span class="badge">' + c.unread_count + "</span>" : ""}
-        </div>
-      </div>
-    </div>`
-  }).join("")
-
-  cont.querySelectorAll("[data-chat]").forEach(el =>
-    el.addEventListener("click", () => abrirChat(Number(el.dataset.chat))))
-
-  cont.querySelectorAll("[data-pin]").forEach(b => b.addEventListener("click", async e => {
-    e.stopPropagation()          // sin esto, fijar también abriría el chat
-    const id = Number(b.dataset.pin)
+  const pin = e.target.closest("[data-pin]")
+  if (pin) {
+    e.stopPropagation()
+    const id = Number(pin.dataset.pin)
     const actual = chats.find(c => c.id === id)
     try {
       await API.patch(u("/chats/" + id), { pinned: !actual.pinned })
       cargarChats()
     } catch (err) { toast(err.message, "error") }
-  }))
-}
+    return
+  }
+
+  const item = e.target.closest("[data-chat]")
+  if (item) abrirChat(Number(item.dataset.chat))
+})
+
+// Scroll infinito: al acercarse al final, pide el tramo siguiente.
+$("#chatlist-body").addEventListener("scroll", e => {
+  const el = e.target
+  if (el.scrollTop + el.clientHeight >= el.scrollHeight - 320) {
+    cargarChats({ append: true })
+  }
+}, { passive: true })
 
 /* ---------------- Etiquetas ---------------- */
 let tagActivo = ""
@@ -693,6 +770,19 @@ const ESTADO_CAMPANIA = {
   error:     ["chip-danger", "Error"]
 }
 
+/** Traduce los filtros guardados de una campaña a chips legibles. */
+function chipsDeZonas(filtros = {}) {
+  const chips = []
+  for (const p of filtros.provincias || []) chips.push('<span class="chip chip-info">🗺 ' + esc(p) + "</span>")
+  for (const a of filtros.areas || [])      chips.push('<span class="chip chip-info">📍 ' + esc(mapaAreas[a] || "área " + a) + "</span>")
+  for (const p of filtros.paises || [])     chips.push('<span class="chip chip-info">🌎 +' + esc(p) + "</span>")
+
+  if (!chips.length) chips.push('<span class="chip">🌐 Todas las zonas</span>')
+  if (filtros.friosDias > 0) chips.push('<span class="chip chip-warn">❄ callados +' + filtros.friosDias + "d</span>")
+  if (filtros.tag)           chips.push('<span class="chip chip-purple">🏷 ' + esc(filtros.tag) + "</span>")
+  return chips.join(" ")
+}
+
 async function cargarDifusiones() {
   try {
     difusiones = await API.get(u("/campaigns"))
@@ -726,6 +816,7 @@ function pintarDifusiones() {
           <div class="tiny dim" style="margin-top:3px">
             Creada ${esc(haceCuanto(c.created_at))}${c.session_label ? " · " + esc(c.session_label) : ""}
           </div>
+          <div class="row wrap" style="gap:5px;margin-top:7px">${chipsDeZonas(c.filters || {})}</div>
         </div>
         <div class="row" style="gap:7px">
           ${["draft", "paused"].includes(c.status) ? `<button class="btn btn-primary btn-sm" data-start="${c.id}">▶ ${c.status === "paused" ? "Reanudar" : "Iniciar"}</button>` : ""}
@@ -831,12 +922,51 @@ async function abrirAsistenteDifusion(prefill = {}) {
     API.get(u("/campaigns/templates/list"))
   ])
 
-  const opcionesZona = zonas.areas.map(a =>
-    `<label class="chip" style="cursor:pointer">
-       <input type="checkbox" value="${a.area_code}" class="zona-check"
-              ${prefill.area === a.area_code ? "checked" : ""} style="margin-right:5px">
-       ${esc(a.region)} (${a.total})
-     </label>`).join("")
+  // ---- Árbol geográfico: provincia > ciudad, más un grupo de otros países ----
+  const porProvincia = new Map()
+  for (const a of zonas.areas) {
+    const prov = a.province || "Sin provincia"
+    if (!porProvincia.has(prov)) porProvincia.set(prov, [])
+    porProvincia.get(prov).push(a)
+  }
+  const totalProv = Object.fromEntries((zonas.provincias || []).map(p => [p.province, p.total]))
+
+  const gruposArg = [...porProvincia.entries()]
+    .sort((a, b) => (totalProv[b[0]] || 0) - (totalProv[a[0]] || 0))
+    .map(([prov, ciudades]) => `
+      <div class="zona-grupo" data-buscar="${esc(prov.toLowerCase())}">
+        <label class="zona-prov">
+          <input type="checkbox" class="prov-check" value="${esc(prov)}">
+          <span class="grow"><b>${esc(prov)}</b> <span class="dim tiny">provincia completa</span></span>
+          <span class="chip tiny">${nEsp(totalProv[prov] || 0)}</span>
+        </label>
+        <div class="zona-ciudades">
+          ${ciudades.sort((x, y) => y.total - x.total).map(a => `
+            <label class="zona-ciudad" data-buscar="${esc((a.region + " " + prov).toLowerCase())}">
+              <input type="checkbox" class="zona-check" value="${a.area_code}" data-prov="${esc(prov)}"
+                     ${prefill.area === a.area_code ? "checked" : ""}>
+              <span class="grow">${esc(a.region)} <span class="dim tiny">+54 ${a.area_code}</span></span>
+              <span class="chip tiny">${nEsp(a.total)}</span>
+            </label>`).join("")}
+        </div>
+      </div>`).join("")
+
+  const otrosPaises = (zonas.paises || []).filter(p => p.country_code !== "54")
+  const grupoPaises = otrosPaises.length ? `
+    <div class="zona-grupo" data-buscar="internacional otros paises">
+      <label class="zona-prov"><span class="grow"><b>Otros países</b></span></label>
+      <div class="zona-ciudades">
+        ${otrosPaises.map(p => `
+          <label class="zona-ciudad" data-buscar="${esc((p.country || p.country_code).toLowerCase())}">
+            <input type="checkbox" class="pais-check" value="${esc(p.country_code)}">
+            <span class="grow">${esc(p.country || p.country_code)} <span class="dim tiny">+${esc(p.country_code)}</span></span>
+            <span class="chip tiny">${nEsp(p.total)}</span>
+          </label>`).join("")}
+      </div>
+    </div>` : ""
+
+  const opcionesZona = (gruposArg + grupoPaises) ||
+    '<div class="muted small" style="padding:14px">Sincronizá tus chats para ver las zonas disponibles.</div>'
 
   const opcionesTpl = tpls.map(t => '<option value="' + t.id + '">' + esc(t.name) + "</option>").join("")
 
@@ -879,9 +1009,18 @@ async function abrirAsistenteDifusion(prefill = {}) {
       <hr style="border:0;border-top:1px solid var(--line)">
 
       <div class="field">
-        <label class="label">A quién le llega</label>
-        <div class="row wrap" style="gap:7px" id="d-zonas">${opcionesZona || '<span class="dim small">Sincronizá tus chats para ver las zonas</span>'}</div>
-        <div class="hint">Sin seleccionar ninguna zona, se envía a todos tus contactos.</div>
+        <div class="spread">
+          <label class="label">Zonas geográficas</label>
+          <span class="tiny dim" id="d-zonas-resumen">todas</span>
+        </div>
+        <input class="input" id="d-buscar-zona" placeholder="Buscar ciudad o provincia…"
+               autocomplete="off" style="margin-bottom:8px">
+        <div class="zona-lista" id="d-zonas">${opcionesZona}</div>
+        <div class="hint">
+          Sin seleccionar nada, se envía a todos. Marcar una <b>provincia completa</b>
+          incluye sus ciudades y también los contactos nuevos que aparezcan ahí después.
+          Las zonas se suman entre sí: podés combinar Mar del Plata + Rosario + toda Córdoba.
+        </div>
       </div>
 
       <div class="grid-2">
@@ -996,6 +1135,55 @@ async function abrirAsistenteDifusion(prefill = {}) {
     if (t) q("#d-mensaje").value = t.body
   })
 
+  /* ---------- Selector de zonas ---------- */
+  // Marcar una provincia cubre a sus ciudades: las deshabilitamos para que no
+  // parezca que hay que tildarlas una por una.
+  function sincronizarProvincias() {
+    overlay.querySelectorAll(".prov-check").forEach(prov => {
+      overlay.querySelectorAll(`.zona-check[data-prov="${CSS.escape(prov.value)}"]`).forEach(ciudad => {
+        ciudad.disabled = prov.checked
+        ciudad.closest(".zona-ciudad").style.opacity = prov.checked ? .45 : 1
+      })
+    })
+  }
+
+  function resumenZonas() {
+    const p = armarPayload().filtros
+    const partes = []
+    if (p.provincias.length) partes.push(p.provincias.length + " provincia(s)")
+    if (p.areas.length)      partes.push(p.areas.length + " ciudad(es)")
+    if (p.paises.length)     partes.push(p.paises.length + " país(es)")
+    q("#d-zonas-resumen").textContent = partes.length ? partes.join(" · ") : "todas"
+  }
+
+  let timerZonas = null
+  q("#d-zonas").addEventListener("change", () => {
+    sincronizarProvincias()
+    resumenZonas()
+    // Recalcular solo cuando deja de tocar, para no consultar en cada click.
+    clearTimeout(timerZonas)
+    timerZonas = setTimeout(() => q("#d-calcular").click(), 500)
+  })
+
+  q("#d-buscar-zona").addEventListener("input", e => {
+    const texto = e.target.value.trim().toLowerCase()
+    overlay.querySelectorAll(".zona-grupo").forEach(grupo => {
+      let visiblesEnGrupo = 0
+      grupo.querySelectorAll(".zona-ciudad").forEach(ciudad => {
+        const coincide = !texto || ciudad.dataset.buscar.includes(texto)
+        ciudad.style.display = coincide ? "" : "none"
+        if (coincide) visiblesEnGrupo++
+      })
+      // El grupo se muestra si coincide su nombre o si le quedó alguna ciudad.
+      const coincideGrupo = !texto || grupo.dataset.buscar.includes(texto)
+      grupo.style.display = (coincideGrupo || visiblesEnGrupo) ? "" : "none"
+      if (coincideGrupo && !texto) grupo.querySelectorAll(".zona-ciudad").forEach(c => c.style.display = "")
+    })
+  })
+
+  sincronizarProvincias()
+  resumenZonas()
+
   q("#d-preview").addEventListener("click", async () => {
     const mensaje = q("#d-mensaje").value.trim()
     if (!mensaje) return toast("Escribí el mensaje primero", "warn")
@@ -1006,12 +1194,18 @@ async function abrirAsistenteDifusion(prefill = {}) {
   })
 
   function armarPayload() {
-    const areas = [...overlay.querySelectorAll(".zona-check:checked")].map(c => c.value)
+    // Las ciudades de una provincia ya marcada se ignoran: la provincia las cubre.
+    const provincias = [...overlay.querySelectorAll(".prov-check:checked")].map(c => c.value)
+    const areas = [...overlay.querySelectorAll(".zona-check:checked")]
+      .filter(c => !provincias.includes(c.dataset.prov))
+      .map(c => c.value)
+    const paises = [...overlay.querySelectorAll(".pais-check:checked")].map(c => c.value)
+
     return {
       nombre:  q("#d-nombre").value.trim(),
       mensaje: q("#d-mensaje").value.trim(),
       filtros: {
-        areas,
+        areas, provincias, paises,
         quien:            q("#d-quien").value,
         friosDias:        parseInt(q("#d-frios").value, 10) || 0,
         tag:              prefill.tag || "",

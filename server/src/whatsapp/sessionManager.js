@@ -180,7 +180,7 @@ async function iniciarSesion(sesion) {
 
     // Sincronización inicial en segundo plano: WhatsApp tarda en poblar el store.
     sleep(15000)
-      .then(() => sincronizarChats(sesion, { limite: 1000 }))
+      .then(() => sincronizarChats(sesion))
       .catch(e => log.error("wa:" + key, "sync inicial: " + e.message))
   })
   .catch(async e => {
@@ -283,11 +283,64 @@ function estadoEnMemoria(sessionKey) {
 // ------------------------------------------------------------
 //  SINCRONIZAR CHATS
 // ------------------------------------------------------------
+// ------------------------------------------------------------
+//  Extracción paginada del store del navegador
+//
+//  Por qué no alcanza con client.listChats():
+//   1. Solo lee WPP.whatsapp.ChatStore (lo que WhatsApp Web ya tiene en
+//      memoria); no consulta al servidor.
+//   2. Devuelve los MODELOS COMPLETOS, que puppeteer tiene que serializar
+//      uno por uno. Con miles de chats eso se vuelve lentísimo o se corta.
+//   3. Pasarle count:-1 hace slice(0,-1) adentro de wa-js: se come el último
+//      chat de la lista (de ahí el 503 en vez de 504).
+//
+//  Acá recorremos el store por tramos y devolvemos objetos planos y chicos,
+//  así la serialización es constante y no importa cuántos chats haya.
+// ------------------------------------------------------------
+
+/** Le pide a WhatsApp Web que rehidrate su colección de chats. */
+async function empujarStore(client) {
+  try {
+    await client.page.evaluate(async () => {
+      try { await WPP?.whatsapp?.ChatStore?.sync?.() } catch (_) {}
+    })
+    await sleep(1500)
+  } catch (e) {
+    log.debug("sync", "empujarStore: " + e.message)
+  }
+}
+
+/** Devuelve { total, items } o null si el store interno no está disponible. */
+async function paginaDeChats(client, desde, cuantos) {
+  return client.page.evaluate(({ d, c }) => {
+    if (typeof WPP === "undefined" || !WPP.whatsapp || !WPP.whatsapp.ChatStore) return null
+
+    const individuales = WPP.whatsapp.ChatStore.getModelsArray().filter(ch => {
+      try { return !ch.id.isGroup() } catch (_) { return false }
+    })
+
+    const items = individuales.slice(d, d + c).map(ch => {
+      const seguro = fn => { try { return fn() } catch (_) { return null } }
+      return {
+        jid:      seguro(() => ch.id?._serialized || String(ch.id)),
+        name:     seguro(() => ch.name || ch.formattedTitle) || null,
+        pushname: seguro(() => ch.contact?.pushname || ch.contact?.formattedName) || null,
+        t:        seguro(() => ch.t) || null,
+        unread:   seguro(() => ch.unreadCount > 0 ? ch.unreadCount : 0) || 0,
+        archived: !!seguro(() => ch.archive),
+        preview:  seguro(() => (ch.msgs?.last?.body || "").slice(0, 160)) || null
+      }
+    }).filter(x => x.jid)
+
+    return { total: individuales.length, items }
+  }, { d: desde, c: cuantos })
+}
+
+/** Respaldo si WPP.whatsapp cambia de forma en una versión futura. */
 async function traerChatsDeWhatsapp(client) {
-  // listChats() es la API de wppconnect v2; las otras dos son de versiones
-  // anteriores y quedan como respaldo. El typeof evita el TypeError si no existen.
   const intentos = [
-    ["listChats",    () => client.listChats({ onlyUsers: true, count: -1 })],
+    // Sin count: wa-js usa Infinity y devuelve todo lo que tenga el store.
+    ["listChats",    () => client.listChats({ onlyUsers: true })],
     ["getAllChats",  () => client.getAllChats()],
     ["getListChats", () => client.getListChats()]
   ]
@@ -307,53 +360,118 @@ async function traerChatsDeWhatsapp(client) {
  * Trae la lista de chats de WhatsApp y la vuelca en la base.
  * Es lo que llena el CRM la primera vez y lo que alimenta las difusiones.
  */
-async function sincronizarChats(sesion, { limite = 1000 } = {}) {
+/** Guarda un chat (objeto plano de paginaDeChats) en la base. */
+async function guardarChatSincronizado(sesion, item) {
+  const contacto = await chatService.upsertContacto(sesion.tenant_id, {
+    jid: item.jid, name: item.name, pushName: item.pushname
+  })
+
+  const fila = await chatService.upsertChat(
+    sesion.tenant_id, sesion.id, contacto.id, item.jid,
+    { archived: item.archived, unreadCount: item.unread }
+  )
+
+  // chat.t viene en segundos. GREATEST evita pisar un dato más nuevo que ya
+  // tengamos por un mensaje entrante recibido durante la sincronización.
+  if (item.t) {
+    await db.query(
+      `UPDATE chats
+          SET last_message_at   = GREATEST(COALESCE(last_message_at, to_timestamp(0)), to_timestamp($2)),
+              last_message_text = COALESCE(last_message_text, $3)
+        WHERE id = $1`,
+      [fila.id, item.t, item.preview || null]
+    )
+  }
+  return fila
+}
+
+/**
+ * Vuelca en la base TODOS los chats del store, en tramos.
+ * Es incremental: cada corrida hace upsert, así que se puede repetir sin
+ * duplicar nada y va acumulando lo que WhatsApp vaya sincronizando con el
+ * tiempo (el teléfono le manda historial al dispositivo vinculado de a poco).
+ */
+async function sincronizarChats(sesion, { tamanoPagina = 500, maximo = 50000 } = {}) {
   const client = obtenerCliente(sesion.session_key)
   if (!client) return { ok: false, mensaje: "La sesión no está conectada" }
 
-  log.info("wa:" + sesion.session_key, "sincronizando chats...")
+  const key = sesion.session_key
+  log.info("wa:" + key, "sincronizando chats por tramos de " + tamanoPagina + "...")
+
+  await empujarStore(client)
+
+  let desde = 0, guardados = 0, omitidos = 0, total = 0, tramos = 0
+
+  while (desde < maximo) {
+    let pagina
+    try {
+      pagina = await paginaDeChats(client, desde, tamanoPagina)
+    } catch (e) {
+      log.warn("wa:" + key, "tramo desde " + desde + " falló: " + e.message)
+      break
+    }
+
+    // El store interno no está disponible: caemos a la API pública.
+    if (pagina === null) {
+      log.warn("wa:" + key, "ChatStore no accesible, uso listChats()")
+      return sincronizarConApiPublica(sesion, client)
+    }
+
+    total = pagina.total
+    if (!pagina.items.length) break
+
+    for (const item of pagina.items) {
+      try { await guardarChatSincronizado(sesion, item); guardados++ }
+      catch (e) { omitidos++; log.debug("sync", e.message) }
+    }
+
+    desde += pagina.items.length
+    tramos++
+    log.info("wa:" + key, "tramo " + tramos + ": " + desde + "/" + total)
+    bus.aTenant(sesion.tenant_id, "chats:sync-progress", {
+      procesados: desde, total, guardados, tramo: tramos
+    })
+
+    if (desde >= total) break
+    await sleep(200)   // respiro para no trabar el navegador
+  }
+
+  if (!guardados && !total) {
+    return { ok: false, mensaje: "WhatsApp todavía no cargó los chats, probá de nuevo en un minuto" }
+  }
+
+  log.ok("wa:" + key, "sincronizados " + guardados + "/" + total + " chats en " + tramos + " tramo(s)")
+  bus.aTenant(sesion.tenant_id, "chats:synced", { guardados, omitidos, total, tramos })
+  return { ok: true, guardados, omitidos, total, tramos }
+}
+
+/** Camino viejo, por si el store interno deja de estar accesible. */
+async function sincronizarConApiPublica(sesion, client) {
   const chats = await traerChatsDeWhatsapp(client)
-  if (!chats.length) return { ok: false, mensaje: "WhatsApp todavía no devolvió chats, probá en un minuto" }
+  if (!chats.length) return { ok: false, mensaje: "WhatsApp todavía no devolvió chats" }
 
   let guardados = 0, omitidos = 0
-  for (const chat of chats.slice(0, limite)) {
+  for (const chat of chats) {
     try {
       if (chat.isGroup) { omitidos++; continue }
-
       const { jid } = await resolverJidDeChat(client, chat)
       if (!jid) { omitidos++; continue }
 
-      const contacto = await chatService.upsertContacto(sesion.tenant_id, {
+      await guardarChatSincronizado(sesion, {
         jid,
         name:     chat.contact?.name || chat.name || null,
-        pushName: chat.contact?.pushname || chat.contact?.formattedName || null
+        pushname: chat.contact?.pushname || chat.contact?.formattedName || null,
+        t:        chat.t || null,
+        unread:   chat.unreadCount || 0,
+        archived: !!chat.archive,
+        preview:  (chat.lastMessage?.body || "").slice(0, 160) || null
       })
-
-      const filaChat = await chatService.upsertChat(
-        sesion.tenant_id, sesion.id, contacto.id, jid,
-        { archived: !!chat.archive, unreadCount: chat.unreadCount || 0 }
-      )
-
-      // Fecha del último mensaje según WhatsApp (chat.t viene en segundos)
-      if (chat.t) {
-        await db.query(
-          `UPDATE chats
-              SET last_message_at   = GREATEST(COALESCE(last_message_at, to_timestamp(0)), to_timestamp($2)),
-                  last_message_text = COALESCE(last_message_text, $3)
-            WHERE id = $1`,
-          [filaChat.id, chat.t, (chat.lastMessage?.body || "").slice(0, 160) || null]
-        )
-      }
       guardados++
-    } catch (e) {
-      omitidos++
-      log.debug("sync", e.message)
-    }
+    } catch (e) { omitidos++; log.debug("sync", e.message) }
   }
 
-  log.ok("wa:" + sesion.session_key, "sincronizados", guardados, "chats (" + omitidos + " omitidos)")
-  bus.aTenant(sesion.tenant_id, "chats:synced", { guardados, omitidos })
-  return { ok: true, guardados, omitidos }
+  bus.aTenant(sesion.tenant_id, "chats:synced", { guardados, omitidos, total: chats.length, tramos: 1 })
+  return { ok: true, guardados, omitidos, total: chats.length, tramos: 1 }
 }
 
 /** Trae el historial reciente de un chat desde WhatsApp y lo guarda. */

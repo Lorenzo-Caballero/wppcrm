@@ -430,6 +430,33 @@ button, input, select, textarea { font: inherit; color: inherit; }
   font-size: 13px; white-space: pre-wrap; line-height: 1.55;
 }
 
+/* ---------------- Selector de zonas geográficas ---------------- */
+.zona-lista {
+  max-height: 280px; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--bg-0); padding: 6px;
+}
+.zona-grupo + .zona-grupo { margin-top: 4px; border-top: 1px solid var(--line-soft); padding-top: 4px; }
+
+.zona-prov {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 9px; border-radius: var(--r-sm);
+  cursor: pointer; font-size: 13px;
+}
+.zona-prov:hover { background: var(--bg-2); }
+
+.zona-ciudades { padding-left: 14px; }
+
+.zona-ciudad {
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 9px; border-radius: var(--r-sm);
+  cursor: pointer; font-size: 12.5px; color: var(--tx-1);
+  transition: background .12s, opacity .12s;
+}
+.zona-ciudad:hover { background: var(--bg-2); }
+.zona-lista input[type="checkbox"] { accent-color: var(--acc); cursor: pointer; flex-shrink: 0; }
+.zona-lista input[type="checkbox"]:disabled { cursor: not-allowed; }
+
 .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }

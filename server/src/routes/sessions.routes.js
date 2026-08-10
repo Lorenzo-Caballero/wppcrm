@@ -63,7 +63,11 @@ router.post("/:id/logout", asyncHandler(async (req, res) => {
 router.post("/:id/sync", asyncHandler(async (req, res) => {
   const sesion = await sesionDelTenant(req.tenantId, parseInt(req.params.id, 10))
   if (!sesion) return res.status(404).json({ error: "Sesión no encontrada" })
-  res.json(await sessionManager.sincronizarChats(sesion, { limite: parseInt(req.body.limite, 10) || 1000 }))
+
+  res.json(await sessionManager.sincronizarChats(sesion, {
+    tamanoPagina: Math.min(parseInt(req.body.tamanoPagina, 10) || 500, 1000),
+    maximo:       parseInt(req.body.maximo, 10) || 50000
+  }))
 }))
 
 module.exports = router

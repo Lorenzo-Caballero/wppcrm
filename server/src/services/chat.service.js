@@ -173,6 +173,14 @@ async function facetasPorZona(tenantId) {
       ORDER BY total DESC`,
     [tenantId]
   )
+  const provincias = await db.many(
+    `SELECT ct.province, COUNT(*)::int AS total
+       FROM chats c JOIN contacts ct ON ct.id = c.contact_id
+      WHERE c.tenant_id = $1 AND ct.country_code = '54' AND ct.province IS NOT NULL
+      GROUP BY ct.province
+      ORDER BY total DESC`,
+    [tenantId]
+  )
   const paises = await db.many(
     `SELECT ct.country_code, ct.country, COUNT(*)::int AS total
        FROM chats c JOIN contacts ct ON ct.id = c.contact_id
@@ -181,7 +189,7 @@ async function facetasPorZona(tenantId) {
       ORDER BY total DESC`,
     [tenantId]
   )
-  return { areas, paises }
+  return { areas, provincias, paises }
 }
 
 async function obtenerChat(tenantId, chatId) {
