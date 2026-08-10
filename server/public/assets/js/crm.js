@@ -75,21 +75,73 @@ function conectarSocket() {
    ============================================================ */
 const VISTAS = ["chats", "difusiones", "estados", "plantillas", "rapidas", "conexion", "ajustes"]
 
-$$(".nav-item").forEach(item => {
-  item.addEventListener("click", () => {
-    $$(".nav-item").forEach(i => i.classList.remove("active"))
-    item.classList.add("active")
-    const vista = item.dataset.vista
-    VISTAS.forEach(v => $("#vista-" + v).classList.toggle("hidden", v !== vista))
-    $("#rail").classList.remove("open")
+const TITULOS = {
+  chats: "Chats", difusiones: "Difusiones", estados: "Estados",
+  plantillas: "Plantillas", rapidas: "Respuestas rápidas",
+  conexion: "Conexión", ajustes: "Ajustes"
+}
 
-    if (vista === "difusiones") cargarDifusiones()
-    if (vista === "plantillas") cargarPlantillas()
-    if (vista === "conexion")   cargarSesionesWa()
-    if (vista === "estados")    cargarEstados()
-    if (vista === "rapidas")    cargarRapidasAdmin()
-  })
+/** Único punto de entrada para cambiar de sección (menú lateral y barra inferior). */
+function irAVista(vista) {
+  if (!VISTAS.includes(vista)) return
+
+  $$(".nav-item").forEach(i => i.classList.toggle("active", i.dataset.vista === vista))
+  $$("#nav-inferior button").forEach(b => b.classList.toggle("activo", b.dataset.vista === vista))
+  VISTAS.forEach(v => $("#vista-" + v).classList.toggle("hidden", v !== vista))
+
+  const titulo = $("#titulo-movil")
+  if (titulo) titulo.textContent = TITULOS[vista] || "CRM"
+
+  cerrarCajon()
+  // Salir de la conversación al cambiar de sección en celular
+  if (vista !== "chats") document.body.classList.remove("chat-abierto")
+
+  if (vista === "difusiones") cargarDifusiones()
+  if (vista === "plantillas") cargarPlantillas()
+  if (vista === "conexion")   cargarSesionesWa()
+  if (vista === "estados")    cargarEstados()
+  if (vista === "rapidas")    cargarRapidasAdmin()
+}
+
+$$(".nav-item").forEach(item =>
+  item.addEventListener("click", () => irAVista(item.dataset.vista)))
+
+$$("#nav-inferior button[data-vista]").forEach(b =>
+  b.addEventListener("click", () => irAVista(b.dataset.vista)))
+
+/* ---------------- Cajón lateral (celular) ---------------- */
+function abrirCajon() {
+  $("#rail").classList.add("open")
+  $("#rail-fondo").classList.add("visible")
+}
+function cerrarCajon() {
+  $("#rail").classList.remove("open")
+  $("#rail-fondo").classList.remove("visible")
+}
+
+$("#abrir-menu").addEventListener("click", abrirCajon)
+$("#mas-opciones").addEventListener("click", abrirCajon)
+$("#rail-fondo").addEventListener("click", cerrarCajon)
+
+// Escape cierra el cajón; y con el chat abierto en celular, vuelve a la lista.
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return
+  if ($("#rail").classList.contains("open")) { cerrarCajon(); return }
+  if (esMovil() && document.body.classList.contains("chat-abierto")) volverALaLista()
 })
+
+function esMovil() { return window.innerWidth <= 860 }
+
+/* El botón físico "atrás" del celular cierra la conversación en vez de
+   sacarte de la aplicación. */
+window.addEventListener("popstate", () => {
+  if (document.body.classList.contains("chat-abierto")) volverALaLista(false)
+})
+
+function volverALaLista(retroceder = true) {
+  document.body.classList.remove("chat-abierto")
+  if (retroceder && history.state?.chat) history.back()
+}
 
 $("#logout").addEventListener("click", cerrarSesion)
 
@@ -100,6 +152,13 @@ async function refrescarResumen() {
   try {
     const r = await API.get(u("/chats/resumen"))
     $("#cnt-noleidos").innerHTML = r.no_leidos > 0 ? '<span class="badge">' + r.no_leidos + "</span>" : ""
+
+    // Mismo contador en la burbuja de la barra inferior (celular)
+    const punto = $("#punto-chats")
+    if (punto) {
+      punto.textContent = r.no_leidos > 99 ? "99+" : String(r.no_leidos || "")
+      punto.classList.toggle("visible", r.no_leidos > 0)
+    }
   } catch (_) {}
 }
 
@@ -223,11 +282,11 @@ function recargarChatsPronto(ms = 500) {
   timerRecarga = setTimeout(cargarChats, ms)
 }
 
-$("#btn-sync").addEventListener("click", async () => {
+async function sincronizarAhora(boton) {
   const sesionWa = sesionesWa[0]
   if (!sesionWa) return toast("Primero conectá WhatsApp", "warn")
 
-  const boton = $("#btn-sync")
+  const original = boton.textContent
   boton.disabled = true
   boton.textContent = "…"
   try {
@@ -238,9 +297,12 @@ $("#btn-sync").addEventListener("click", async () => {
     toast(e.message, "error")
   } finally {
     boton.disabled = false
-    boton.textContent = "⟳"
+    boton.textContent = original
   }
-})
+}
+
+$("#btn-sync").addEventListener("click", e => sincronizarAhora(e.currentTarget))
+$("#btn-sync-movil").addEventListener("click", e => sincronizarAhora(e.currentTarget))
 
 /** Lee el estado actual de todos los filtros de la pantalla. */
 function filtrosActuales() {
@@ -702,9 +764,11 @@ async function abrirChat(chatId) {
     if (badge) badge.remove()
     refrescarResumen()
 
-    if (window.innerWidth <= 860) {
-      $("#chatlist").classList.add("hide-mobile")
-      $("#volver-lista").classList.remove("hidden")
+    // En celular la conversación reemplaza a la lista (un panel por vez).
+    if (esMovil()) {
+      document.body.classList.add("chat-abierto")
+      // Entrada en el historial para que el botón "atrás" vuelva a la lista.
+      if (!history.state?.chat) history.pushState({ chat: chatId }, "")
     }
   } catch (e) { toast(e.message, "error") }
 }
@@ -801,10 +865,7 @@ function textoDeMensaje(waMsgId) {
   return m ? (m.body || "[" + m.type + "]").slice(0, 120) : null
 }
 
-$("#volver-lista").addEventListener("click", () => {
-  $("#chatlist").classList.remove("hide-mobile")
-  $("#volver-lista").classList.add("hidden")
-})
+$("#volver-lista").addEventListener("click", () => volverALaLista())
 
 /* ---------------- Acciones sobre un mensaje ---------------- */
 $("#conv-body").addEventListener("click", async e => {
@@ -1583,8 +1644,16 @@ function alSesionCambio(p) {
 function pintarEstadoRail() {
   const principal = sesionesWa[0]
   const [dot, txt] = ESTADO_WA[principal?.status] || ESTADO_WA.disconnected
+
   $("#wa-dot").className = "dot " + dot
   $("#wa-estado").textContent = txt
+
+  // Espejo en la cabecera de celular
+  const dotMovil = $("#wa-dot-movil")
+  if (dotMovil) {
+    dotMovil.className = "dot " + dot
+    $("#wa-estado-movil").textContent = txt
+  }
 }
 
 /* ============================================================

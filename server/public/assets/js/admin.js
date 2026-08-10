@@ -40,9 +40,24 @@ $$(".nav-item").forEach(item => {
     ;["clientes", "sesiones", "cuenta"].forEach(v => {
       $("#vista-" + v).classList.toggle("hidden", v !== vista)
     })
+    cerrarCajon()
     if (vista === "sesiones") pintarSesiones()
   })
 })
+
+/* ---------------- Menú lateral en celular ---------------- */
+function abrirCajon() {
+  $("#rail").classList.add("open")
+  $("#rail-fondo").classList.add("visible")
+}
+function cerrarCajon() {
+  $("#rail").classList.remove("open")
+  $("#rail-fondo").classList.remove("visible")
+}
+
+$("#abrir-menu").addEventListener("click", abrirCajon)
+$("#rail-fondo").addEventListener("click", cerrarCajon)
+document.addEventListener("keydown", e => { if (e.key === "Escape") cerrarCajon() })
 
 $("#logout").addEventListener("click", cerrarSesion)
 

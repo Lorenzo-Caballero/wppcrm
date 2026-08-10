@@ -2,13 +2,19 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- viewport-fit=cover: usa la pantalla completa en celulares con notch -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0e14">
+  <meta name="mobile-web-app-capable" content="yes">
   <title>CRM · wppcrm</title>
   <link rel="stylesheet" href="/assets/css/app.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
 </head>
 <body>
 <div class="shell">
+
+  <!-- Fondo oscuro detrás del menú lateral en celular -->
+  <div class="rail-fondo" id="rail-fondo"></div>
 
   <!-- ==================== RAIL ==================== -->
   <aside class="rail" id="rail">
@@ -59,6 +65,19 @@
 
       <div class="chatlist" id="chatlist">
         <div class="chatlist-head">
+          <!-- Encabezado solo para celular, al estilo WhatsApp -->
+          <div class="cabecera-movil">
+            <button class="btn btn-ghost" id="abrir-menu" title="Menú">☰</button>
+            <div class="grow">
+              <div style="font-weight:680;font-size:16px" id="titulo-movil">Chats</div>
+              <div class="tiny dim row" style="gap:6px">
+                <span class="dot dot-off" id="wa-dot-movil"></span>
+                <span id="wa-estado-movil">Sin conectar</span>
+              </div>
+            </div>
+            <button class="btn btn-ghost" id="btn-sync-movil" title="Sincronizar">⟳</button>
+          </div>
+
           <!-- autocomplete/name defensivos: sin esto el navegador mete el email
                guardado acá adentro y la lista de chats aparece vacía sola -->
           <div class="row">
@@ -146,7 +165,7 @@
 
         <div id="conv-activa" class="hidden" style="display:flex;flex-direction:column;height:100%">
           <div class="conv-head">
-            <button class="btn btn-ghost btn-sm hidden" id="volver-lista">←</button>
+            <button class="btn btn-ghost btn-sm" id="volver-lista" title="Volver">←</button>
             <div id="conv-avatar"></div>
             <div class="grow truncate">
               <div class="row" style="gap:8px">
@@ -350,6 +369,15 @@
     </div>
 
   </main>
+
+  <!-- Barra inferior de navegación (solo celular) -->
+  <nav class="nav-inferior" id="nav-inferior">
+    <button data-vista="chats"      class="activo"><span>💬</span><small>Chats</small><i class="punto" id="punto-chats"></i></button>
+    <button data-vista="difusiones"><span>📣</span><small>Difusión</small></button>
+    <button data-vista="estados"><span>📸</span><small>Estados</small></button>
+    <button data-vista="conexion"><span>📱</span><small>Conexión</small></button>
+    <button id="mas-opciones"><span>⋯</span><small>Más</small></button>
+  </nav>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
