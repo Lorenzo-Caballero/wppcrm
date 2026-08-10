@@ -188,11 +188,13 @@ function pintarPlan() {
    ZONAS (códigos de área)
    ============================================================ */
 let mapaAreas = {}   // "223" -> "Mar del Plata", para traducir códigos en la UI
+let sinZonaDetectada = 0
 
 async function cargarZonas() {
   try {
-    const { areas, paises } = await API.get(u("/chats/zonas"))
+    const { areas, paises, sinZona } = await API.get(u("/chats/zonas"))
     mapaAreas = Object.fromEntries(areas.map(a => [a.area_code, a.region]))
+    sinZonaDetectada = sinZona || 0
 
     const sel = $("#filtro-zona")
     const previo = sel.value
@@ -2029,6 +2031,16 @@ async function abrirAsistenteDifusion(prefill = {}) {
   const opcionesZona = (gruposArg + grupoPaises) ||
     '<div class="muted small" style="padding:14px">Sincronizá tus chats para ver las zonas disponibles.</div>'
 
+  // Solo se listan zonas reconocidas. Si hay contactos cuyo código de área
+  // no está en la tabla, se avisa acá en vez de inventarles una zona.
+  const avisoSinZona = zonas.sinZona
+    ? `<div class="hint" style="margin-top:6px">
+         ${nEsp(zonas.sinZona)} contacto(s) tienen un código de área que todavía no
+         está en la tabla, así que no aparecen en ninguna zona. Si no seleccionás
+         ninguna zona igual les llega.
+       </div>`
+    : ""
+
   const opcionesTpl = tpls.map(t => '<option value="' + t.id + '">' + esc(t.name) + "</option>").join("")
 
   const { overlay, cerrar } = abrirModal(`
@@ -2082,6 +2094,7 @@ async function abrirAsistenteDifusion(prefill = {}) {
           incluye sus ciudades y también los contactos nuevos que aparezcan ahí después.
           Las zonas se suman entre sí: podés combinar Mar del Plata + Rosario + toda Córdoba.
         </div>
+        ${avisoSinZona}
       </div>
 
       <div class="grid-2">

@@ -8,7 +8,7 @@ const { requiereAuth, resolverTenant } = require("../middleware/auth")
 const chatService    = require("../services/chat.service")
 const sessionManager = require("../whatsapp/sessionManager")
 const actions        = require("../whatsapp/actions")
-const { formatearParaMostrar, catalogoAreas } = require("../utils/phone")
+const { formatearParaMostrar } = require("../utils/phone")
 
 const router = express.Router()
 router.use(requiereAuth, resolverTenant)
@@ -63,9 +63,14 @@ router.get("/resumen", asyncHandler(async (req, res) => {
   res.json(await chatService.resumenTenant(req.tenantId))
 }))
 
+/**
+ * Zonas detectadas en los chats del cliente.
+ * Antes se mandaba también el catálogo completo de códigos de área (268
+ * entradas en cada carga) que ningún componente usaba. Solo van las zonas
+ * que este cliente realmente tiene.
+ */
 router.get("/zonas", asyncHandler(async (req, res) => {
-  const facetas = await chatService.facetasPorZona(req.tenantId)
-  res.json({ ...facetas, catalogo: catalogoAreas() })
+  res.json(await chatService.facetasPorZona(req.tenantId))
 }))
 
 /** Traduce los parámetros de la URL a las opciones del servicio. */

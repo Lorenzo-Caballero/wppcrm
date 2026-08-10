@@ -189,11 +189,18 @@ async function contarChats(tenantId, opciones = {}) {
 }
 
 /** Cuenta de chats agrupada por zona — alimenta los filtros laterales. */
+/**
+ * Zonas presentes en los chats del cliente.
+ * Solo devuelve las IDENTIFICADAS (con localidad reconocida): un código de
+ * área que no está en la tabla no es una zona, es un dato sin traducir, y
+ * mostrarlo como opción solo ensucia el selector.
+ */
 async function facetasPorZona(tenantId) {
   const areas = await db.many(
     `SELECT ct.area_code, ct.region, ct.province, COUNT(*)::int AS total
        FROM chats c JOIN contacts ct ON ct.id = c.contact_id
-      WHERE c.tenant_id = $1 AND ct.country_code = '54' AND ct.area_code IS NOT NULL
+      WHERE c.tenant_id = $1 AND ct.country_code = '54'
+        AND ct.area_code IS NOT NULL AND ct.region IS NOT NULL
       GROUP BY ct.area_code, ct.region, ct.province
       ORDER BY total DESC`,
     [tenantId]
@@ -214,7 +221,17 @@ async function facetasPorZona(tenantId) {
       ORDER BY total DESC`,
     [tenantId]
   )
-  return { areas, provincias, paises }
+  // Cuántos quedaron sin zona reconocida. No se listan como opción, pero
+  // conviene saber que existen: si el número es alto, falta algún código
+  // en ar-area-codes.json.
+  const sinZona = await db.one(
+    `SELECT COUNT(*)::int AS total
+       FROM chats c JOIN contacts ct ON ct.id = c.contact_id
+      WHERE c.tenant_id = $1 AND ct.country_code = '54' AND ct.region IS NULL`,
+    [tenantId]
+  )
+
+  return { areas, provincias, paises, sinZona: sinZona?.total || 0 }
 }
 
 async function obtenerChat(tenantId, chatId) {

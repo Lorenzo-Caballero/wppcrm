@@ -98,20 +98,25 @@ function analizarNumero(numeroOJid) {
         areaCode: area,
         region,
         province,
+        identificada: true,
         label: region + ", " + province,
         e164: "+" + digits
       }
     }
-    // Código de área desconocido: igual lo guardamos para poder agrupar.
-    const areaDesconocida = resto.slice(0, 3)
+
+    // Código de área que no está en la tabla: guardamos los dígitos para
+    // poder agrupar internamente, pero region y province quedan en NULL.
+    // Así el selector de zonas muestra solo localidades reconocidas y no
+    // se llena de entradas tipo "Área 2657" que no significan nada.
     return {
       phone: digits,
       countryCode: cc,
       country,
-      areaCode: areaDesconocida,
-      region: "Área " + areaDesconocida,
-      province: "Argentina",
-      label: "Argentina · área " + areaDesconocida,
+      areaCode: resto.slice(0, 3),
+      region: null,
+      province: null,
+      identificada: false,
+      label: "Argentina",
       e164: "+" + digits
     }
   }
