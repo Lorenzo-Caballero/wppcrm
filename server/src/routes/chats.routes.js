@@ -96,15 +96,26 @@ router.get("/seguimientos", asyncHandler(async (req, res) => {
 }))
 
 // ---------- Selección múltiple ----------
-/** Ids de todos los chats que coinciden con los filtros ("seleccionar todos"). */
+/**
+ * Ids de todos los chats que coinciden con los filtros ("seleccionar todos").
+ * Devuelve también el total real, para poder avisar si se alcanzó el tope
+ * en vez de dejar al usuario creyendo que esos son todos sus chats.
+ */
 router.get("/ids", asyncHandler(async (req, res) => {
-  res.json({ ids: await chatService.idsFiltrados(req.tenantId, filtrosDeQuery(req.query)) })
+  const filtros = filtrosDeQuery(req.query)
+  const tope    = Math.min(parseInt(req.query.tope, 10) || 20000, 50000)
+
+  const [ids, total] = await Promise.all([
+    chatService.idsFiltrados(req.tenantId, filtros, tope),
+    chatService.contarChats(req.tenantId, filtros)
+  ])
+  res.json({ ids, total, tope, truncado: ids.length < total })
 }))
 
 router.post("/masivo", asyncHandler(async (req, res) => {
   const { ids, accion, valor } = req.body
   if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: "No hay chats seleccionados" })
-  if (ids.length > 5000)                   return res.status(400).json({ error: "Demasiados chats de una vez" })
+  if (ids.length > 20000)                  return res.status(400).json({ error: "Demasiados chats de una vez" })
 
   res.json(await chatService.accionMasiva(req.tenantId, ids, accion, valor))
 }))

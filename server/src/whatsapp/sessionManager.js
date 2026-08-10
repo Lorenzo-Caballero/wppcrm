@@ -319,7 +319,8 @@ async function paginaDeChats(client, desde, cuantos) {
       try { return !ch.id.isGroup() } catch (_) { return false }
     })
 
-    const items = individuales.slice(d, d + c).map(ch => {
+    const trozo = individuales.slice(d, d + c)
+    const items = trozo.map(ch => {
       const seguro = fn => { try { return fn() } catch (_) { return null } }
       return {
         jid:      seguro(() => ch.id?._serialized || String(ch.id)),
@@ -332,7 +333,10 @@ async function paginaDeChats(client, desde, cuantos) {
       }
     }).filter(x => x.jid)
 
-    return { total: individuales.length, items }
+    // `leidos` es cuántos modelos consumimos del store; `items` los que
+    // sobrevivieron. El bucle tiene que avanzar por `leidos`: si avanza por
+    // `items` y alguno se descartó, relee los mismos y puede cortarse antes.
+    return { total: individuales.length, leidos: trozo.length, items }
   }, { d: desde, c: cuantos })
 }
 
@@ -418,14 +422,16 @@ async function sincronizarChats(sesion, { tamanoPagina = 500, maximo = 50000 } =
     }
 
     total = pagina.total
-    if (!pagina.items.length) break
+    // Se corta cuando el store no dio más modelos, no cuando no quedó ningún
+    // item válido: una página entera de descartes no significa que se terminó.
+    if (!pagina.leidos) break
 
     for (const item of pagina.items) {
       try { await guardarChatSincronizado(sesion, item); guardados++ }
       catch (e) { omitidos++; log.debug("sync", e.message) }
     }
 
-    desde += pagina.items.length
+    desde += pagina.leidos
     tramos++
     log.info("wa:" + key, "tramo " + tramos + ": " + desde + "/" + total)
     bus.aTenant(sesion.tenant_id, "chats:sync-progress", {

@@ -53,17 +53,31 @@ function matchPrefijo(digits, tabla, longitudes) {
  * }}
  */
 function analizarNumero(numeroOJid) {
-  const digits = /@/.test(String(numeroOJid)) ? jidANumero(numeroOJid) : soloDigitos(numeroOJid)
+  const bruto  = String(numeroOJid || "")
+  const digits = /@/.test(bruto) ? jidANumero(bruto) : soloDigitos(bruto)
 
   const vacio = {
     phone: digits, countryCode: null, country: null,
     areaCode: null, region: null, province: null,
     label: "Desconocido", e164: digits ? "+" + digits : ""
   }
-  if (!digits || digits.length < 7) return vacio
+
+  // Los JID @lid no son teléfonos: son identificadores internos de WhatsApp.
+  // Como son puros dígitos, sin este corte matchean cualquier prefijo de país
+  // (uno que empieza con 1 se reporta como Estados Unidos, con 7 como Rusia…)
+  // y ensucian el listado de países con lugares que no existen en la agenda.
+  if (/@lid$/i.test(bruto)) return vacio
+
+  // E.164: un número real tiene entre 8 y 15 dígitos contando el país.
+  // Fuera de ese rango no intentamos adivinar el origen.
+  if (!digits || digits.length < 8 || digits.length > 15) return vacio
 
   const cc = matchPrefijo(digits, COUNTRIES, [4, 3, 2, 1])
   if (!cc) return vacio
+
+  // El número nacional que queda tiene que ser plausible: al menos 6 dígitos.
+  // Esto descarta prefijos de 1 dígito que matchearon de casualidad.
+  if (digits.length - cc.length < 6) return vacio
 
   const country = COUNTRIES[cc]
 

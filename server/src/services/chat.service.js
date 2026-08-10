@@ -25,11 +25,15 @@ async function upsertContacto(tenantId, { jid, name, pushName, isGroup = false }
        name         = COALESCE(NULLIF(EXCLUDED.name, ''),      contacts.name),
        push_name    = COALESCE(NULLIF(EXCLUDED.push_name, ''), contacts.push_name),
        phone        = COALESCE(EXCLUDED.phone,        contacts.phone),
-       country      = COALESCE(EXCLUDED.country,      contacts.country),
-       country_code = COALESCE(EXCLUDED.country_code, contacts.country_code),
-       area_code    = COALESCE(EXCLUDED.area_code,    contacts.area_code),
-       region       = COALESCE(EXCLUDED.region,       contacts.region),
-       province     = COALESCE(EXCLUDED.province,     contacts.province)
+       -- Los campos geográficos se PISAN siempre, sin COALESCE: se derivan del
+       -- jid de forma determinista, así que recalcularlos es siempre correcto.
+       -- Con COALESCE, una detección vieja y errónea quedaba pegada para
+       -- siempre (un @lid clasificado como "Estados Unidos" nunca se limpiaba).
+       country      = EXCLUDED.country,
+       country_code = EXCLUDED.country_code,
+       area_code    = EXCLUDED.area_code,
+       region       = EXCLUDED.region,
+       province     = EXCLUDED.province
      RETURNING *`,
     [tenantId, jid, phone, name || null, pushName || null,
      geo.country, geo.countryCode, geo.areaCode, geo.region, geo.province, isGroup]
@@ -284,7 +288,7 @@ async function chatsPorIds(tenantId, ids) {
 }
 
 /** Todos los ids que coinciden con los filtros — para "seleccionar todos". */
-async function idsFiltrados(tenantId, opciones = {}, tope = 5000) {
+async function idsFiltrados(tenantId, opciones = {}, tope = 20000) {
   const { where, params, i } = armarFiltros(tenantId, opciones)
   params.push(tope)
   const filas = await db.many(

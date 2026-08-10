@@ -469,8 +469,10 @@ $("#chatlist-body").addEventListener("click", async e => {
 $("#sel-cancelar").addEventListener("click", limpiarSeleccion)
 
 $("#sel-todos").addEventListener("click", async () => {
+  const boton = $("#sel-todos")
+  boton.disabled = true
   try {
-    const params = new URLSearchParams()
+    const params = new URLSearchParams({ tope: "20000" })
     for (const [k, v] of Object.entries(filtrosActuales())) if (v) params.set(k, v)
 
     // Los ids salen del servidor: la selección abarca TODO lo filtrado,
@@ -478,8 +480,18 @@ $("#sel-todos").addEventListener("click", async () => {
     const r = await API.get(u("/chats/ids?" + params.toString()))
     r.ids.forEach(id => seleccion.add(Number(id)))
     refrescarSeleccion()
-    toast(seleccion.size + " chats seleccionados")
-  } catch (e) { toast(e.message, "error") }
+
+    if (r.truncado) {
+      toast("Seleccionados " + nEsp(r.ids.length) + " de " + nEsp(r.total) +
+            " (tope por seguridad). Afiná los filtros para trabajar por tandas.", "warn", 7000)
+    } else {
+      toast(nEsp(seleccion.size) + " chats seleccionados")
+    }
+  } catch (e) {
+    toast(e.message, "error")
+  } finally {
+    boton.disabled = false
+  }
 })
 
 $("#sel-acciones").addEventListener("click", e => {
