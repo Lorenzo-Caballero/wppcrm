@@ -298,6 +298,89 @@ function estadoEnMemoria(sessionKey) {
 //  así la serialización es constante y no importa cuántos chats haya.
 // ------------------------------------------------------------
 
+// ------------------------------------------------------------
+//  Lectura directa de IndexedDB ("model-storage")
+//
+//  ChatStore.getModelsArray() solo devuelve lo que WhatsApp Web tiene
+//  HIDRATADO en memoria — típicamente unos cientos, los que entrarían en
+//  la barra lateral. Los demás están en disco y no aparecen hasta scrollear.
+//
+//  La base "model-storage" (la misma que usa wa-js para leer mensajes)
+//  contiene TODOS los chats sincronizados con el dispositivo. Leyéndola con
+//  un cursor sacamos la lista completa, sin depender de la interfaz.
+// ------------------------------------------------------------
+
+/** Cuántos chats hay en IndexedDB. null si la base no está disponible. */
+async function contarChatsEnDisco(client) {
+  return client.page.evaluate(async () => {
+    try {
+      return await new Promise(resolve => {
+        const req = indexedDB.open("model-storage")
+        req.onerror = () => resolve(null)
+        req.onsuccess = ev => {
+          const db = ev.target.result
+          if (!db.objectStoreNames.contains("chat")) { db.close(); return resolve(null) }
+          const c = db.transaction(["chat"], "readonly").objectStore("chat").count()
+          c.onsuccess = () => { const n = c.result; db.close(); resolve(n) }
+          c.onerror   = () => { db.close(); resolve(null) }
+        }
+      })
+    } catch (_) { return null }
+  })
+}
+
+/** Un tramo de chats leído de IndexedDB. */
+async function paginaDeChatsEnDisco(client, desde, cuantos) {
+  return client.page.evaluate(async ({ d, c }) => {
+    try {
+      return await new Promise(resolve => {
+        const req = indexedDB.open("model-storage")
+        req.onerror = () => resolve(null)
+        req.onsuccess = ev => {
+          const db = ev.target.result
+          if (!db.objectStoreNames.contains("chat")) { db.close(); return resolve(null) }
+
+          const store  = db.transaction(["chat"], "readonly").objectStore("chat")
+          const items  = []
+          let leidos   = 0
+          let saltado  = d <= 0
+
+          const cursor = store.openCursor()
+          cursor.onerror = () => { db.close(); resolve(null) }
+          cursor.onsuccess = e => {
+            const cur = e.target.result
+            if (!cur) { db.close(); return resolve({ leidos, items }) }
+
+            // advance(0) es inválido: solo saltamos si hay algo que saltar.
+            if (!saltado) { saltado = true; cur.advance(d); return }
+
+            leidos++
+            const v = cur.value || {}
+            const id = typeof v.id === "string" ? v.id : (v.id?._serialized || cur.key)
+
+            // Solo conversaciones individuales: fuera grupos, listas de
+            // difusión, canales y el pseudo-chat de estados.
+            if (typeof id === "string" && /@(c\.us|lid)$/.test(id)) {
+              items.push({
+                jid:      id,
+                name:     v.name || v.formattedTitle || null,
+                pushname: v.notifyName || null,
+                t:        typeof v.t === "number" ? v.t : null,
+                unread:   v.unreadCount > 0 ? v.unreadCount : 0,
+                archived: !!v.archive,
+                preview:  null
+              })
+            }
+
+            if (leidos >= c) { db.close(); return resolve({ leidos, items }) }
+            cur.continue()
+          }
+        }
+      })
+    } catch (_) { return null }
+  }, { d: desde, c: cuantos })
+}
+
 /** Le pide a WhatsApp Web que rehidrate su colección de chats. */
 async function empujarStore(client) {
   try {
@@ -400,28 +483,37 @@ async function sincronizarChats(sesion, { tamanoPagina = 500, maximo = 50000 } =
   if (!client) return { ok: false, mensaje: "La sesión no está conectada" }
 
   const key = sesion.session_key
-  log.info("wa:" + key, "sincronizando chats por tramos de " + tamanoPagina + "...")
-
   await empujarStore(client)
+
+  // Fuente preferida: IndexedDB (tiene TODOS los chats del dispositivo).
+  // Si no está, caemos al store en memoria, que solo trae los hidratados.
+  const enDisco = await contarChatsEnDisco(client)
+  const desdeDisco = typeof enDisco === "number" && enDisco > 0
+
+  log.info("wa:" + key, "sincronizando desde " +
+    (desdeDisco ? "IndexedDB (" + enDisco + " registros)" : "el store en memoria") +
+    ", tramos de " + tamanoPagina)
 
   let desde = 0, guardados = 0, omitidos = 0, total = 0, tramos = 0
 
   while (desde < maximo) {
     let pagina
     try {
-      pagina = await paginaDeChats(client, desde, tamanoPagina)
+      pagina = desdeDisco
+        ? await paginaDeChatsEnDisco(client, desde, tamanoPagina)
+        : await paginaDeChats(client, desde, tamanoPagina)
     } catch (e) {
       log.warn("wa:" + key, "tramo desde " + desde + " falló: " + e.message)
       break
     }
 
-    // El store interno no está disponible: caemos a la API pública.
+    // Ninguna de las dos fuentes respondió: última chance con la API pública.
     if (pagina === null) {
-      log.warn("wa:" + key, "ChatStore no accesible, uso listChats()")
+      log.warn("wa:" + key, "store no accesible, uso listChats()")
       return sincronizarConApiPublica(sesion, client)
     }
 
-    total = pagina.total
+    total = desdeDisco ? enDisco : pagina.total
     // Se corta cuando el store no dio más modelos, no cuando no quedó ningún
     // item válido: una página entera de descartes no significa que se terminó.
     if (!pagina.leidos) break

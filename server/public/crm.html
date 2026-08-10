@@ -65,9 +65,14 @@
             <input class="input" id="buscar" type="search" name="filtro_chats_wppcrm"
                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                    data-lpignore="true" data-1p-ignore data-form-type="other"
-                   placeholder="Buscar nombre o teléfono…" style="padding:8px 11px">
+                   placeholder="Buscar nombre, teléfono o texto…" style="padding:8px 11px">
             <button class="btn btn-sm" id="btn-sync" title="Traer los chats desde WhatsApp">⟳</button>
           </div>
+
+          <label class="switch tiny" id="fila-en-mensajes">
+            <input type="checkbox" id="buscar-en-mensajes" checked><span class="track"></span>
+            <span class="muted">Buscar también dentro de los mensajes</span>
+          </label>
 
           <div class="chatlist-filters">
             <select class="select grow" id="filtro-zona"><option value="">Todas las zonas</option></select>

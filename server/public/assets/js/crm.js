@@ -39,6 +39,7 @@ const ESTADO_WA = {
   $("#tenant-name").textContent = sesion.tenant?.name || (TENANT_ID ? "Cliente #" + TENANT_ID : "Mi CRM")
 
   conectarSocket()
+  actualizarVisibilidadBusqueda()
   await Promise.all([cargarSesionesWa(), cargarZonas(), cargarTags(), cargarRapidas(), cargarChats()])
   pintarPlan()
   avisarSeguimientos()
@@ -164,8 +165,10 @@ let totalFiltrado = 0
 let busquedaTecleada = ""
 $("#buscar").addEventListener("input", e => {
   busquedaTecleada = e.target.value
+  actualizarVisibilidadBusqueda()
   clearTimeout(timerBusqueda)
-  timerBusqueda = setTimeout(cargarChats, 280)
+  // Buscar dentro de los mensajes es más caro: damos un poco más de aire.
+  timerBusqueda = setTimeout(cargarChats, busquedaTecleada.length >= 3 ? 420 : 280)
 })
 
 function limpiarAutocompletado() {
@@ -178,8 +181,13 @@ function limpiarAutocompletado() {
 window.addEventListener("pageshow", () => setTimeout(limpiarAutocompletado, 100))
 window.addEventListener("focus",    () => setTimeout(limpiarAutocompletado, 100))
 
-$$("#filtro-zona, #filtro-orden, #filtro-quien, #filtro-frios, #solo-noleidos")
+$$("#filtro-zona, #filtro-orden, #filtro-quien, #filtro-frios, #solo-noleidos, #buscar-en-mensajes")
   .forEach(el => el.addEventListener("change", cargarChats))
+
+// El toggle de búsqueda en mensajes solo tiene sentido si hay algo escrito.
+function actualizarVisibilidadBusqueda() {
+  $("#fila-en-mensajes").classList.toggle("hidden", busquedaTecleada.trim().length < 3)
+}
 
 $("#btn-limpiar").addEventListener("click", () => {
   busquedaTecleada = ""
@@ -190,6 +198,7 @@ $("#btn-limpiar").addEventListener("click", () => {
   $("#filtro-orden").value = "reciente"
   $("#solo-noleidos").checked = false
   tagActivo = ""
+  actualizarVisibilidadBusqueda()
   cargarChats()
   cargarTags()
 })
@@ -239,14 +248,15 @@ function filtrosActuales() {
   return {
     // A propósito NO se lee $("#buscar").value: el navegador puede escribir
     // ahí lo que quiera (autocompletado). Solo vale lo que se tecleó.
-    q:        busquedaTecleada.trim(),
-    orden:    $("#filtro-orden").value,
-    quien:    $("#filtro-quien").value,
-    frios:    $("#filtro-frios").value,
-    tag:      tagActivo,
-    noleidos: $("#solo-noleidos").checked ? "1" : "",
-    area:     zona.startsWith("area:") ? zona.slice(5) : "",
-    pais:     zona.startsWith("pais:") ? zona.slice(5) : ""
+    q:          busquedaTecleada.trim(),
+    orden:      $("#filtro-orden").value,
+    quien:      $("#filtro-quien").value,
+    frios:      $("#filtro-frios").value,
+    tag:        tagActivo,
+    noleidos:   $("#solo-noleidos").checked ? "1" : "",
+    enmensajes: $("#buscar-en-mensajes").checked ? "" : "0",   // "" = por defecto (activado)
+    area:       zona.startsWith("area:") ? zona.slice(5) : "",
+    pais:       zona.startsWith("pais:") ? zona.slice(5) : ""
   }
 }
 

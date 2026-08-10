@@ -213,3 +213,23 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted       BOOLEAN NOT NULL DEF
 
 CREATE INDEX IF NOT EXISTS idx_chats_followup ON chats(tenant_id, follow_up_at)
   WHERE follow_up_at IS NOT NULL;
+
+-- ============================================================
+--  ÍNDICES DE BÚSQUEDA Y RENDIMIENTO
+-- ============================================================
+-- pg_trgm permite que un LIKE '%texto%' use índice en vez de recorrer
+-- toda la tabla. Sin esto, buscar dentro de los mensajes se arrastra
+-- apenas pasás de unos miles.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE INDEX IF NOT EXISTS idx_messages_body_trgm
+  ON messages USING gin (body gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_contacts_nombre_trgm
+  ON contacts USING gin ((COALESCE(name, '') || ' ' || COALESCE(push_name, '')) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_contacts_phone ON contacts(tenant_id, phone);
+
+-- El orden por defecto del listado: activos, más recientes primero.
+CREATE INDEX IF NOT EXISTS idx_chats_listado
+  ON chats(tenant_id, archived, pinned DESC, last_message_at DESC NULLS LAST);

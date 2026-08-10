@@ -16,6 +16,20 @@ router.use(requiereAuth, resolverTenant)
 // 64 MB: el tope práctico de WhatsApp para documentos.
 const subida = multer({ storage: multer.memoryStorage(), limits: { fileSize: 64 * 1024 * 1024 } })
 
+/** Diagnóstico: cuántos chats hay realmente guardados para este cliente. */
+router.get("/diagnostico", asyncHandler(async (req, res) => {
+  const r = await db.one(
+    `SELECT
+       (SELECT COUNT(*)::int FROM chats    WHERE tenant_id = $1)                    AS chats_totales,
+       (SELECT COUNT(*)::int FROM chats    WHERE tenant_id = $1 AND archived)       AS archivados,
+       (SELECT COUNT(*)::int FROM contacts WHERE tenant_id = $1)                    AS contactos,
+       (SELECT COUNT(*)::int FROM messages WHERE tenant_id = $1)                    AS mensajes,
+       (SELECT COUNT(*)::int FROM contacts WHERE tenant_id = $1 AND country_code IS NULL) AS sin_pais`,
+    [req.tenantId]
+  )
+  res.json(r)
+}))
+
 /** Sesión de WhatsApp asociada al chat (o la principal del cliente). */
 async function sesionDeChat(tenantId, chat) {
   if (chat?.session_id) {
@@ -67,7 +81,10 @@ function filtrosDeQuery(q) {
     friosDias:         parseInt(q.frios, 10) || 0,
     orden:             q.orden  || "reciente",
     soloNoLeidos:      q.noleidos   === "1",
-    incluirArchivados: q.archivados === "1"
+    incluirArchivados: q.archivados === "1",
+    // Buscar dentro del historial completo, no solo en el último mensaje.
+    // Se puede apagar desde la UI si se quiere una búsqueda más liviana.
+    enMensajes:        q.enmensajes !== "0"
   }
 }
 
@@ -76,10 +93,8 @@ router.get("/", asyncHandler(async (req, res) => {
   const limit   = Math.min(parseInt(req.query.limit, 10) || 60, 200)
   const offset  = parseInt(req.query.offset, 10) || 0
 
-  const [chats, total] = await Promise.all([
-    chatService.listarChats(req.tenantId, { ...filtros, limit, offset }),
-    chatService.contarChats(req.tenantId, filtros)
-  ])
+  // Una sola consulta trae la página y el total (COUNT(*) OVER()).
+  const { chats, total } = await chatService.listarChats(req.tenantId, { ...filtros, limit, offset })
   res.json({ chats: chats.map(decorar), total, offset, limit })
 }))
 

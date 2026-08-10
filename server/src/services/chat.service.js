@@ -80,15 +80,16 @@ function armarFiltros(tenantId, opciones = {}) {
 
   if (!incluirArchivados) where.push("c.archived = FALSE")
 
-  // Búsqueda por nombre, texto del último mensaje o teléfono.
+  // Búsqueda por nombre, teléfono, último mensaje y —opcionalmente— por
+  // el contenido de toda la conversación.
   // Para el teléfono comparamos solo dígitos, así "223 407-7440",
   // "+54 9 223 4077440" y "2234077440" encuentran lo mismo.
   if (search) {
     const partes = []
     params.push("%" + search.toLowerCase() + "%")
     const pTexto = ++i
-    partes.push(`LOWER(COALESCE(ct.name,''))            LIKE $${pTexto}`)
-    partes.push(`LOWER(COALESCE(ct.push_name,''))       LIKE $${pTexto}`)
+    partes.push(`LOWER(COALESCE(ct.name,''))             LIKE $${pTexto}`)
+    partes.push(`LOWER(COALESCE(ct.push_name,''))        LIKE $${pTexto}`)
     partes.push(`LOWER(COALESCE(c.last_message_text,'')) LIKE $${pTexto}`)
 
     const digitos = String(search).replace(/\D/g, "")
@@ -96,6 +97,16 @@ function armarFiltros(tenantId, opciones = {}) {
       params.push("%" + digitos + "%")
       partes.push(`ct.phone LIKE $${++i}`)
     }
+
+    // Buscar dentro del historial completo. Se apoya en el índice trigram
+    // de messages.body; con menos de 3 letras no vale la pena (matchea todo).
+    if (opciones.enMensajes !== false && search.trim().length >= 3) {
+      partes.push(`EXISTS (
+        SELECT 1 FROM messages m
+         WHERE m.chat_id = c.id AND m.body ILIKE $${pTexto}
+         LIMIT 1)`)
+    }
+
     where.push("(" + partes.join(" OR ") + ")")
   }
 
@@ -133,6 +144,11 @@ const ORDENES = {
   area:      "c.pinned DESC, ct.area_code ASC NULLS LAST, c.last_message_at DESC NULLS LAST"
 }
 
+/**
+ * Listado paginado + total, en UNA sola consulta.
+ * COUNT(*) OVER() se evalúa antes del LIMIT, así que da el total real sin
+ * tener que repetir la búsqueda (que con el filtro de mensajes es cara).
+ */
 async function listarChats(tenantId, opciones = {}) {
   const { limit = 60, offset = 0, orden = "reciente" } = opciones
   const { where, params, i } = armarFiltros(tenantId, opciones)
@@ -141,11 +157,12 @@ async function listarChats(tenantId, opciones = {}) {
   params.push(limit);  const pLimit  = i + 1
   params.push(offset); const pOffset = i + 2
 
-  return db.many(
+  const filas = await db.many(
     `SELECT c.id, c.wa_chat_id, c.unread_count, c.last_message_at, c.last_message_text,
             c.last_direction, c.last_inbound_at, c.archived, c.pinned, c.status, c.tags,
             ct.id AS contact_id, ct.jid, ct.phone, ct.name, ct.push_name,
-            ct.country, ct.country_code, ct.area_code, ct.region, ct.province, ct.is_group
+            ct.country, ct.country_code, ct.area_code, ct.region, ct.province, ct.is_group,
+            COUNT(*) OVER() AS _total
        FROM chats c
        JOIN contacts ct ON ct.id = c.contact_id
       WHERE ${where.join(" AND ")}
@@ -153,6 +170,10 @@ async function listarChats(tenantId, opciones = {}) {
       LIMIT $${pLimit} OFFSET $${pOffset}`,
     params
   )
+
+  const total = filas.length ? Number(filas[0]._total) : 0
+  filas.forEach(f => delete f._total)
+  return { chats: filas, total }
 }
 
 /** Cuántos chats hay en total con esos filtros (el listado viene paginado). */
