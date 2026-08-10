@@ -8,9 +8,10 @@
   <meta name="mobile-web-app-capable" content="yes">
   <title>CRM · wppcrm</title>
   <link rel="stylesheet" href="/assets/css/app.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2310b981' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5z'/></svg>">
 </head>
 <body>
+<!--ICONOS-->
 <div class="shell">
 
   <!-- Fondo oscuro detrás del menú lateral en celular -->
@@ -32,19 +33,19 @@
     <nav class="rail-nav">
       <div class="rail-sec">Conversaciones</div>
       <div class="nav-item active" data-vista="chats">
-        <span class="ico">💬</span> Chats
+        <svg class="ico"><use href="#i-chat"></use></svg> Chats
         <span class="count" id="cnt-noleidos"></span>
       </div>
 
       <div class="rail-sec">Marketing</div>
-      <div class="nav-item" data-vista="difusiones"><span class="ico">📣</span> Difusiones</div>
-      <div class="nav-item" data-vista="estados"><span class="ico">📸</span> Estados</div>
-      <div class="nav-item" data-vista="plantillas"><span class="ico">📝</span> Plantillas</div>
-      <div class="nav-item" data-vista="rapidas"><span class="ico">⚡</span> Respuestas rápidas</div>
+      <div class="nav-item" data-vista="difusiones"><svg class="ico"><use href="#i-megafono"></use></svg> Difusiones</div>
+      <div class="nav-item" data-vista="estados"><svg class="ico"><use href="#i-camara"></use></svg> Estados</div>
+      <div class="nav-item" data-vista="plantillas"><svg class="ico"><use href="#i-archivo-texto"></use></svg> Plantillas</div>
+      <div class="nav-item" data-vista="rapidas"><svg class="ico"><use href="#i-rayo"></use></svg> Respuestas rápidas</div>
 
       <div class="rail-sec">Cuenta</div>
-      <div class="nav-item" data-vista="conexion"><span class="ico">📱</span> Conexión</div>
-      <div class="nav-item" data-vista="ajustes"><span class="ico">⚙️</span> Ajustes</div>
+      <div class="nav-item" data-vista="conexion"><svg class="ico"><use href="#i-telefono"></use></svg> Conexión</div>
+      <div class="nav-item" data-vista="ajustes"><svg class="ico"><use href="#i-ajustes"></use></svg> Ajustes</div>
     </nav>
 
     <div class="rail-foot">
@@ -53,7 +54,9 @@
           <div class="small" style="font-weight:600" id="user-name">—</div>
           <div class="tiny dim truncate" id="user-email">—</div>
         </div>
-        <button class="btn btn-ghost btn-sm" id="logout" title="Salir">⏻</button>
+        <button class="btn btn-ghost btn-sm" id="logout" title="Salir">
+          <svg class="ico"><use href="#i-salir"></use></svg>
+        </button>
       </div>
     </div>
   </aside>
@@ -67,7 +70,9 @@
         <div class="chatlist-head">
           <!-- Encabezado solo para celular, al estilo WhatsApp -->
           <div class="cabecera-movil">
-            <button class="btn btn-ghost" id="abrir-menu" title="Menú">☰</button>
+            <button class="btn btn-ghost" id="abrir-menu" title="Menú">
+              <svg class="ico ico-lg"><use href="#i-menu"></use></svg>
+            </button>
             <div class="grow">
               <div style="font-weight:680;font-size:16px" id="titulo-movil">Chats</div>
               <div class="tiny dim row" style="gap:6px">
@@ -75,7 +80,9 @@
                 <span id="wa-estado-movil">Sin conectar</span>
               </div>
             </div>
-            <button class="btn btn-ghost" id="btn-sync-movil" title="Sincronizar">⟳</button>
+            <button class="btn btn-ghost" id="btn-sync-movil" title="Sincronizar">
+              <svg class="ico ico-lg"><use href="#i-refrescar"></use></svg>
+            </button>
           </div>
 
           <!-- autocomplete/name defensivos: sin esto el navegador mete el email
@@ -85,7 +92,9 @@
                    autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                    data-lpignore="true" data-1p-ignore data-form-type="other"
                    placeholder="Buscar nombre, teléfono o texto…" style="padding:8px 11px">
-            <button class="btn btn-sm" id="btn-sync" title="Traer los chats desde WhatsApp">⟳</button>
+            <button class="btn btn-sm" id="btn-sync" title="Traer los chats desde WhatsApp">
+              <svg class="ico"><use href="#i-refrescar"></use></svg>
+            </button>
           </div>
 
           <label class="switch tiny" id="fila-en-mensajes">
@@ -134,10 +143,18 @@
           </div>
 
           <div class="row" style="gap:6px">
-            <button class="btn btn-sm grow hidden" id="btn-limpiar">✕ Limpiar filtros</button>
-            <button class="btn btn-sm grow hidden" id="btn-difundir-filtro" title="Crear una difusión dirigida a estos contactos">📣 Difundir a estos</button>
-            <button class="btn btn-sm" id="btn-leer-todo" title="Marcar todo como leído">✓✓</button>
-            <button class="btn btn-sm" id="btn-exportar" title="Exportar a CSV">⭳</button>
+            <button class="btn btn-sm grow hidden" id="btn-limpiar">
+              <svg class="ico ico-sm"><use href="#i-cerrar"></use></svg> Limpiar filtros
+            </button>
+            <button class="btn btn-sm grow hidden" id="btn-difundir-filtro" title="Crear una difusión dirigida a estos contactos">
+              <svg class="ico ico-sm"><use href="#i-megafono"></use></svg> Difundir a estos
+            </button>
+            <button class="btn btn-sm" id="btn-leer-todo" title="Marcar todo como leído">
+              <svg class="ico"><use href="#i-tilde-doble"></use></svg>
+            </button>
+            <button class="btn btn-sm" id="btn-exportar" title="Exportar a CSV">
+              <svg class="ico"><use href="#i-descargar"></use></svg>
+            </button>
           </div>
 
           <!-- Barra de selección múltiple (Ctrl+click / Shift+click) -->
@@ -146,7 +163,9 @@
             <span class="grow"></span>
             <button class="btn btn-sm" id="sel-todos">Todos</button>
             <button class="btn btn-primary btn-sm" id="sel-acciones">Acciones</button>
-            <button class="btn btn-ghost btn-sm" id="sel-cancelar" title="Cancelar selección">✕</button>
+            <button class="btn btn-ghost btn-sm" id="sel-cancelar" title="Cancelar selección">
+              <svg class="ico"><use href="#i-cerrar"></use></svg>
+            </button>
           </div>
         </div>
         <div class="chatlist-body" id="chatlist-body"></div>
@@ -155,17 +174,19 @@
       <div class="conv" id="conv">
         <div class="empty" id="conv-vacio">
           <div>
-            <div class="ico">💬</div>
-            <div class="h2">Elegí una conversación</div>
+            <svg class="ico ico-xl dim"><use href="#i-chat"></use></svg>
+            <div class="h2" style="margin-top:14px">Elegí una conversación</div>
             <div class="muted small" style="margin-top:6px">
-              Si la lista está vacía, conectá WhatsApp y tocá el botón ⟳ para sincronizar.
+              Si la lista está vacía, conectá WhatsApp y sincronizá los chats.
             </div>
           </div>
         </div>
 
         <div id="conv-activa" class="hidden" style="display:flex;flex-direction:column;height:100%">
           <div class="conv-head">
-            <button class="btn btn-ghost btn-sm" id="volver-lista" title="Volver">←</button>
+            <button class="btn btn-ghost btn-sm" id="volver-lista" title="Volver">
+              <svg class="ico ico-lg"><use href="#i-atras"></use></svg>
+            </button>
             <div id="conv-avatar"></div>
             <div class="grow truncate">
               <div class="row" style="gap:8px">
@@ -179,10 +200,18 @@
               <option value="pendiente">Pendiente</option>
               <option value="cerrado">Cerrado</option>
             </select>
-            <button class="btn btn-ghost btn-sm" id="conv-notas" title="Notas internas">🗒</button>
-            <button class="btn btn-ghost btn-sm" id="conv-tags" title="Etiquetas">🏷</button>
-            <button class="btn btn-ghost btn-sm" id="conv-pin" title="Fijar">📌</button>
-            <button class="btn btn-ghost btn-sm" id="conv-menu" title="Más acciones">⋮</button>
+            <button class="btn btn-ghost btn-sm" id="conv-notas" title="Notas internas">
+              <svg class="ico"><use href="#i-nota"></use></svg>
+            </button>
+            <button class="btn btn-ghost btn-sm" id="conv-tags" title="Etiquetas">
+              <svg class="ico"><use href="#i-etiqueta"></use></svg>
+            </button>
+            <button class="btn btn-ghost btn-sm" id="conv-pin" title="Fijar">
+              <svg class="ico"><use href="#i-pin"></use></svg>
+            </button>
+            <button class="btn btn-ghost btn-sm" id="conv-menu" title="Más acciones">
+              <svg class="ico"><use href="#i-mas-vertical"></use></svg>
+            </button>
           </div>
 
           <div class="row wrap" id="conv-tags-lista"
@@ -197,25 +226,33 @@
                 <div class="tiny" style="color:var(--acc);font-weight:600">Respondiendo a</div>
                 <div class="tiny muted truncate" id="responder-texto"></div>
               </div>
-              <button class="btn btn-ghost btn-sm" id="responder-cancelar">✕</button>
+              <button class="btn btn-ghost btn-sm" id="responder-cancelar" title="Cancelar respuesta">
+                <svg class="ico"><use href="#i-cerrar"></use></svg>
+              </button>
             </div>
 
             <!-- Lista de respuestas rápidas: aparece al escribir / -->
             <div class="quick-list hidden" id="lista-rapidas"></div>
 
             <div class="composer">
-              <button class="btn btn-ghost" id="btn-adjuntar" title="Adjuntar archivo (o arrastralo acá)"
-                      style="width:44px;height:44px;font-size:18px">📎</button>
+              <button class="btn btn-ghost" id="btn-adjuntar" title="Adjuntar archivo (o arrastralo acá)">
+                <svg class="ico ico-lg"><use href="#i-clip"></use></svg>
+              </button>
               <input type="file" id="file-input" class="hidden" multiple>
               <textarea id="composer" rows="1"
                         placeholder="Escribí un mensaje…  (Enter envía · Shift+Enter salta línea · / respuestas rápidas)"></textarea>
-              <button class="send-btn" id="enviar" title="Enviar">➤</button>
+              <button class="send-btn" id="enviar" title="Enviar">
+                <svg class="ico ico-lg"><use href="#i-enviar"></use></svg>
+              </button>
             </div>
           </div>
 
           <!-- Se muestra al arrastrar archivos sobre la conversación -->
           <div class="drop-zona hidden" id="drop-zona">
-            <div><div style="font-size:42px">📥</div><div class="h3">Soltá para enviar</div></div>
+            <div>
+              <svg class="ico ico-xl"><use href="#i-descargar"></use></svg>
+              <div class="h3" style="margin-top:10px">Soltá para enviar</div>
+            </div>
           </div>
         </div>
       </div>
@@ -372,11 +409,14 @@
 
   <!-- Barra inferior de navegación (solo celular) -->
   <nav class="nav-inferior" id="nav-inferior">
-    <button data-vista="chats"      class="activo"><span>💬</span><small>Chats</small><i class="punto" id="punto-chats"></i></button>
-    <button data-vista="difusiones"><span>📣</span><small>Difusión</small></button>
-    <button data-vista="estados"><span>📸</span><small>Estados</small></button>
-    <button data-vista="conexion"><span>📱</span><small>Conexión</small></button>
-    <button id="mas-opciones"><span>⋯</span><small>Más</small></button>
+    <button data-vista="chats" class="activo">
+      <svg class="ico ico-lg"><use href="#i-chat"></use></svg><small>Chats</small>
+      <i class="punto" id="punto-chats"></i>
+    </button>
+    <button data-vista="difusiones"><svg class="ico ico-lg"><use href="#i-megafono"></use></svg><small>Difusión</small></button>
+    <button data-vista="estados"><svg class="ico ico-lg"><use href="#i-camara"></use></svg><small>Estados</small></button>
+    <button data-vista="conexion"><svg class="ico ico-lg"><use href="#i-telefono"></use></svg><small>Conexión</small></button>
+    <button id="mas-opciones"><svg class="ico ico-lg"><use href="#i-mas-horizontal"></use></svg><small>Más</small></button>
   </nav>
 </div>
 

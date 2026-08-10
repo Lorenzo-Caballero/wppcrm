@@ -69,6 +69,19 @@ button, input, select, textarea { font: inherit; color: inherit; }
 ::-webkit-scrollbar-thumb { background: #23303f; border-radius: 99px; border: 3px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-thumb:hover { background: #33445a; background-clip: content-box; }
 
+/* ---------------- Iconos ---------------- */
+.ico {
+  width: 18px; height: 18px; flex-shrink: 0;
+  fill: none; stroke: currentColor;
+  stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
+  vertical-align: -.18em;
+}
+.ico-sm { width: 15px; height: 15px; }
+.ico-lg { width: 22px; height: 22px; }
+.ico-xl { width: 40px; height: 40px; stroke-width: 1.4; }
+/* Iconos que se leen mejor rellenos que como contorno */
+.ico-lleno { fill: currentColor; stroke: none; }
+
 /* ---------------- Tipografía utilitaria ---------------- */
 .h1 { font-size: 24px; font-weight: 650; letter-spacing: -.02em; }
 .h2 { font-size: 18px; font-weight: 620; letter-spacing: -.01em; }
@@ -288,10 +301,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* Anclar desde la lista, sin abrir el chat */
 .btn-pin {
-  background: none; border: 0; cursor: pointer; padding: 0 2px;
-  font-size: 11px; line-height: 1; transition: opacity .15s, transform .1s;
+  background: none; border: 0; cursor: pointer; padding: 2px;
+  color: var(--tx-3); line-height: 0; border-radius: 5px;
+  opacity: 0; transition: opacity .15s, color .15s, background .15s;
 }
-.btn-pin:hover { opacity: 1 !important; transform: scale(1.2); }
+.chat-item:hover .btn-pin { opacity: .75; }
+.btn-pin.fijado { opacity: 1; color: var(--acc); }
+.btn-pin:hover { opacity: 1; color: var(--tx-0); background: var(--bg-3); }
 
 .chat-item .meta .chip.tiny { font-size: 10px; padding: 1px 6px; }
 
@@ -323,30 +339,82 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .day-sep { align-self: center; margin: 14px 0 8px; }
 
+/* ============================================================
+   MENSAJES
+   Cada mensaje es una fila (.msg) con la burbuja y, al costado, el
+   botón de acciones. Antes ese botón vivía DENTRO de la burbuja y se
+   montaba sobre la primera línea: por eso se veían deformados.
+   ============================================================ */
+.msg {
+  display: flex; align-items: flex-end; gap: 4px;
+  max-width: 100%; margin-top: 10px;
+}
+.msg.in  { justify-content: flex-start; }
+.msg.out { justify-content: flex-end; }
+.msg.seguido { margin-top: 2px; }
+
+.msg-accion {
+  background: none; border: 0; padding: 4px; cursor: pointer;
+  color: var(--tx-3); border-radius: 50%; align-self: center; flex-shrink: 0;
+  opacity: 0; transition: opacity .14s, background .14s, color .14s;
+}
+.msg.out .msg-accion { order: -1; }          /* queda a la izquierda de la burbuja */
+.msg:hover .msg-accion { opacity: 1; }
+.msg-accion:hover { background: var(--bg-3); color: var(--tx-0); }
+
 .bubble {
-  max-width: min(600px, 74%); padding: 9px 13px 7px;
-  border-radius: 14px; font-size: 13.8px; line-height: 1.5;
-  white-space: pre-wrap; word-break: break-word; position: relative;
-  box-shadow: var(--sh-1);
+  position: relative;
+  max-width: min(620px, 76%);
+  padding: 7px 11px 6px;
+  border-radius: 12px;
+  font-size: 14px; line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;                   /* una URL larga no estira la burbuja */
+  box-shadow: 0 1px 1px rgba(0,0,0,.28);
 }
-.bubble.in  { align-self: flex-start; background: var(--bg-2); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
-.bubble.out { align-self: flex-end; background: linear-gradient(160deg, #0f5c45, #0b4a37); border: 1px solid #146b50; border-bottom-right-radius: 4px; }
-.bubble + .bubble { margin-top: 3px; }
+.msg.in  .bubble { background: var(--bg-2); border-top-left-radius: 4px; }
+.msg.out .bubble { background: #0d5a44;     border-top-right-radius: 4px; }
 
-/* Colitas de las burbujas, como en WhatsApp */
-.bubble::after {
-  content: ""; position: absolute; bottom: -1px; width: 0; height: 0;
-  border: 7px solid transparent;
+/* Las agrupadas no repiten la esquina recortada */
+.msg.seguido.in  .bubble { border-top-left-radius: 12px; }
+.msg.seguido.out .bubble { border-top-right-radius: 12px; }
+
+/* Colita: solo la primera de cada tanda. El degradado radial recorta
+   la esquina y deja la curva, más prolijo que el truco de bordes. */
+.msg:not(.seguido) .bubble::before {
+  content: ""; position: absolute; top: 0; width: 9px; height: 13px;
 }
-.bubble.in::after  { left: -7px;  border-right-color: var(--bg-2); border-bottom: 0; }
-.bubble.out::after { right: -7px; border-left-color: #0b4a37;      border-bottom: 0; }
+.msg.in:not(.seguido) .bubble::before {
+  left: -8px;
+  background: radial-gradient(circle at 100% 0, transparent 9px, var(--bg-2) 9px);
+}
+.msg.out:not(.seguido) .bubble::before {
+  right: -8px;
+  background: radial-gradient(circle at 0 0, transparent 9px, #0d5a44 9px);
+}
 
-/* Solo la primera burbuja de cada tanda lleva cola: si no, queda ruidoso */
-.bubble.in  + .bubble.in::after,
-.bubble.out + .bubble.out::after { display: none; }
-.bubble .stamp { font-size: 10.5px; color: var(--tx-3); margin-top: 3px; text-align: right; display: flex; gap: 5px; justify-content: flex-end; align-items: center; }
-.bubble.out .stamp { color: rgba(209,250,229,.55); }
-.bubble .author { font-size: 10.5px; color: var(--acc); margin-bottom: 3px; font-weight: 600; }
+.bubble .texto { margin-bottom: 2px; }
+
+/* La hora flota al final del texto, como en WhatsApp */
+.bubble .stamp {
+  float: right;
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10.5px; color: var(--tx-3);
+  margin: 6px 0 0 10px; user-select: none;
+}
+.msg.out .bubble .stamp { color: rgba(209,250,229,.6); }
+.bubble .stamp .marca { display: inline-flex; }
+.bubble .stamp .marca.leido { color: #53bdeb; }
+.bubble .lleno-estrella { fill: currentColor; stroke: none; opacity: .85; }
+
+.bubble .autor { font-size: 11px; color: #6ee7b7; font-weight: 650; margin-bottom: 2px; }
+
+/* Cuando es solo multimedia, la burbuja se ajusta al contenido */
+.bubble.solo-media { padding: 4px; }
+.bubble.solo-media .stamp {
+  position: absolute; right: 10px; bottom: 9px; margin: 0;
+  background: rgba(0,0,0,.55); border-radius: 99px; padding: 2px 7px; color: #e2e8f0;
+}
 
 .composer { display: flex; gap: 10px; align-items: flex-end; }
 .composer textarea {
@@ -393,6 +461,32 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .modal-head { padding: 18px 22px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .modal-body { padding: 22px; display: flex; flex-direction: column; gap: 16px; }
 .modal-foot { padding: 16px 22px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 10px; }
+
+/* ---------------- Pulido general ---------------- */
+/* Los botones alinean texto e icono sin que el icono empuje la línea base */
+.btn .ico { margin: 0; }
+.btn-ghost .ico { opacity: .85; }
+.btn-ghost:hover .ico { opacity: 1; }
+
+/* Botones que son solo un icono: cuadrados y centrados */
+.send-btn .ico { stroke-width: 2.1; }
+
+.chip .ico { opacity: .8; }
+.chip button { display: inline-flex; align-items: center; }
+
+.nav-item .ico { opacity: .75; transition: opacity .14s; }
+.nav-item:hover .ico,
+.nav-item.active .ico { opacity: 1; }
+
+.empty .ico { opacity: .28; }
+.empty .h2, .empty .h3 { margin-top: 12px; }
+
+/* Foco visible para teclado, sin el contorno feo por defecto */
+:focus-visible {
+  outline: 2px solid var(--acc-dim);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
 
 /* ---------------- Notificaciones ---------------- */
 .toasts { position: fixed; bottom: 22px; right: 22px; z-index: 90; display: flex; flex-direction: column; gap: 10px; }
@@ -515,40 +609,50 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .conv { position: relative; }
 
 /* ---------------- Burbujas con archivos ---------------- */
+.bubble .media { margin-bottom: 4px; }
+.bubble.solo-media .media { margin-bottom: 0; }
+
 .bubble .media img, .bubble .media video {
-  max-width: 100%; max-height: 320px; border-radius: 9px; display: block; cursor: pointer;
+  max-width: 100%; max-height: 340px; min-width: 130px;
+  border-radius: 9px; display: block; cursor: pointer;
+  background: rgba(0,0,0,.25);
 }
-.bubble .media audio { width: 260px; max-width: 100%; }
-.bubble .media { margin-bottom: 5px; }
+.bubble .media-audio { min-width: 250px; }
+.bubble .media audio { width: 100%; height: 38px; display: block; }
 
 .bubble .doc {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 11px; background: rgba(255,255,255,.05);
-  border-radius: 9px; margin-bottom: 5px; text-decoration: none; color: inherit;
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 9px 11px; margin-bottom: 4px;
+  background: rgba(255,255,255,.06); border: 0;
+  border-radius: 9px; text-decoration: none; color: inherit;
+  cursor: pointer; text-align: left; font: inherit;
+  transition: background .14s;
 }
-.bubble .doc:hover { background: rgba(255,255,255,.09); }
-.bubble .doc .ico { font-size: 22px; }
+.bubble .doc:hover { background: rgba(255,255,255,.11); }
+.bubble .doc .grow { display: flex; flex-direction: column; min-width: 0; }
+.bubble .doc .doc-nombre {
+  font-size: 13px; font-weight: 550;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.bubble .doc .doc-sub { font-size: 11px; opacity: .65; }
 
 .bubble .citado {
-  border-left: 3px solid var(--acc); padding: 4px 9px; margin-bottom: 5px;
-  background: rgba(255,255,255,.05); border-radius: 5px;
-  font-size: 12px; color: var(--tx-2);
+  border-left: 3px solid #6ee7b7; padding: 5px 9px; margin-bottom: 5px;
+  background: rgba(255,255,255,.07); border-radius: 5px;
+  font-size: 12.5px; color: var(--tx-2); white-space: normal;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .bubble .reaccion {
-  position: absolute; bottom: -11px; right: 9px;
+  position: absolute; bottom: -12px; right: 8px;
   background: var(--bg-3); border: 1px solid var(--line);
-  border-radius: 99px; padding: 1px 6px; font-size: 12px;
+  border-radius: 99px; padding: 1px 7px; font-size: 13px; line-height: 1.4;
+  box-shadow: var(--sh-1);
 }
-.bubble.borrado { opacity: .5; font-style: italic; }
-
-.bubble .acciones {
-  position: absolute; top: 3px; right: 5px; opacity: 0;
-  background: none; border: 0; color: var(--tx-2); cursor: pointer;
-  font-size: 15px; padding: 0 3px; transition: opacity .12s;
+.bubble.borrado {
+  opacity: .6; font-style: italic;
+  display: flex; align-items: center; gap: 6px;
 }
-.bubble:hover .acciones { opacity: .8; }
-.bubble .acciones:hover { opacity: 1; color: var(--tx-0); }
+.bubble.borrado .stamp { float: none; font-style: normal; }
 
 /* ---------------- Estados ---------------- */
 .color-chip {
@@ -718,7 +822,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .conv-body { padding: 14px 12px; }
   .conv-foot { padding: 9px 10px calc(9px + env(safe-area-inset-bottom)); }
 
-  .bubble { max-width: 86%; font-size: 14.5px; }
+  .bubble { max-width: 82%; font-size: 14.5px; }
+  .msg { margin-top: 8px; }
+
+  /* En celular no hay hover: el botón de acciones se muestra siempre,
+     tenue, y con área táctil suficiente. */
+  .msg-accion { opacity: .5; padding: 7px; }
+  .bubble .media img, .bubble .media video { max-height: 300px; }
 
   /* 16px evita que iOS haga zoom al enfocar el campo */
   .composer textarea { font-size: 16px; min-height: 42px; }

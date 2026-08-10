@@ -168,7 +168,7 @@ async function avisarSeguimientos() {
     const pendientes = await API.get(u("/chats/seguimientos"))
     if (!pendientes.length) return
 
-    toast("⏰ Tenés " + pendientes.length + " seguimiento(s) para hoy", "warn", 7000)
+    toast("Tenés " + pendientes.length + " seguimiento(s) para hoy", "warn", 7000)
     const nombres = pendientes.slice(0, 8)
       .map(p => "· " + (p.name || p.push_name || p.phone)).join("\n")
     console.info("Seguimientos pendientes:\n" + nombres)
@@ -409,8 +409,8 @@ function filaChat(c) {
         ${c.status !== "abierto" ? '<span class="chip tiny">' + esc(c.status) + "</span>" : ""}
         <span class="grow"></span>
         <span class="tiny dim">${esc(ultimaResp)}</span>
-        <button class="btn-pin" data-pin="${c.id}" title="${c.pinned ? "Desfijar" : "Fijar arriba"}"
-                style="opacity:${c.pinned ? 1 : .3}">📌</button>
+        <button class="btn-pin ${c.pinned ? "fijado" : ""}" data-pin="${c.id}"
+                title="${c.pinned ? "Desfijar" : "Fijar arriba"}">${ico("pin", "ico-sm")}</button>
         ${c.unread_count > 0 ? '<span class="badge">' + c.unread_count + "</span>" : ""}
       </div>
     </div>
@@ -435,16 +435,16 @@ function pintarChats({ append = false } = {}) {
     cont.innerHTML = filtrando
       ? `<div class="empty" style="padding:50px 24px">
            <div>
-             <div class="ico">🔍</div>
-             <div class="h3">Sin resultados</div>
+             ${ico("buscar", "ico-xl dim")}
+             <div class="h3" style="margin-top:12px">Sin resultados</div>
              <div class="muted small" style="margin-top:6px">Ningún chat coincide con los filtros actuales.</div>
              <button class="btn btn-sm" style="margin-top:14px" data-accion="limpiar">Limpiar filtros</button>
            </div></div>`
       : `<div class="empty" style="padding:50px 24px">
            <div>
-             <div class="ico">📭</div>
-             <div class="h3">No hay conversaciones</div>
-             <div class="muted small" style="margin-top:6px">Conectá WhatsApp y tocá ⟳ para traer tus chats.</div>
+             ${ico("bandeja", "ico-xl dim")}
+             <div class="h3" style="margin-top:12px">No hay conversaciones</div>
+             <div class="muted small" style="margin-top:6px">Conectá WhatsApp y sincronizá para traer tus chats.</div>
            </div></div>`
     renderizados = 0
     return
@@ -570,19 +570,19 @@ $("#sel-acciones").addEventListener("click", e => {
   const ids = [...seleccion]
   menuFlotante(e.currentTarget, [
     { titulo: ids.length + " chats seleccionados" },
-    { icono: "🏷", texto: "Agregar etiqueta",      accion: () => masivoEtiquetar(ids, true) },
-    { icono: "🧹", texto: "Quitar etiqueta",       accion: () => masivoEtiquetar(ids, false) },
+    { icono: "etiqueta",    texto: "Agregar etiqueta",      accion: () => masivoEtiquetar(ids, true) },
+    { icono: "limpiar",     texto: "Quitar etiqueta",       accion: () => masivoEtiquetar(ids, false) },
     { separador: true },
-    { icono: "✓✓", texto: "Marcar como leídos",    accion: () => masivo(ids, "leer") },
-    { icono: "📌", texto: "Fijar",                 accion: () => masivo(ids, "fijar") },
-    { icono: "📥", texto: "Archivar",              accion: () => masivo(ids, "archivar") },
-    { icono: "📤", texto: "Desarchivar",           accion: () => masivo(ids, "desarchivar") },
+    { icono: "tilde-doble", texto: "Marcar como leídos",    accion: () => masivo(ids, "leer") },
+    { icono: "pin",         texto: "Fijar",                 accion: () => masivo(ids, "fijar") },
+    { icono: "archivar",    texto: "Archivar",              accion: () => masivo(ids, "archivar") },
+    { icono: "bandeja",     texto: "Desarchivar",           accion: () => masivo(ids, "desarchivar") },
     { separador: true },
-    { icono: "🔖", texto: "Cambiar estado",        accion: () => masivoEstado(ids) },
-    { icono: "⏰", texto: "Programar seguimiento", accion: () => masivoSeguimiento(ids) },
+    { icono: "marcador",    texto: "Cambiar estado",        accion: () => masivoEstado(ids) },
+    { icono: "reloj",       texto: "Programar seguimiento", accion: () => masivoSeguimiento(ids) },
     { separador: true },
-    { icono: "📣", texto: "Difundir a estos",      accion: () => difundirSeleccion(ids) },
-    { icono: "⭳",  texto: "Exportar a CSV",        accion: () => exportarCsv(ids) }
+    { icono: "megafono",    texto: "Difundir a estos",      accion: () => difundirSeleccion(ids) },
+    { icono: "descargar",   texto: "Exportar a CSV",        accion: () => exportarCsv(ids) }
   ])
 })
 
@@ -603,7 +603,7 @@ async function masivoEtiquetar(ids, agregar) {
   const { overlay, cerrar } = abrirModal(`
     <div class="modal-head">
       <div class="h2">${agregar ? "Agregar" : "Quitar"} etiqueta</div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button>
     </div>
     <div class="modal-body">
       <div class="muted small">Se aplica a ${ids.length} chats.</div>
@@ -631,7 +631,7 @@ async function masivoEtiquetar(ids, agregar) {
 function masivoEstado(ids) {
   const { overlay, cerrar } = abrirModal(`
     <div class="modal-head"><div class="h2">Cambiar estado</div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button></div>
     <div class="modal-body">
       <div class="muted small">Se aplica a ${ids.length} chats.</div>
       <div class="row" style="gap:8px">
@@ -648,7 +648,7 @@ function masivoSeguimiento(ids) {
   const opciones = [["Mañana", 1], ["En 3 días", 3], ["En 1 semana", 7], ["En 15 días", 15], ["En 30 días", 30]]
   const { overlay, cerrar } = abrirModal(`
     <div class="modal-head"><div class="h2">Programar seguimiento</div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button></div>
     <div class="modal-body">
       <div class="muted small">Te va a aparecer como pendiente cuando llegue la fecha. Se aplica a ${ids.length} chats.</div>
       <div class="col" style="gap:7px">
@@ -781,13 +781,16 @@ function pintarMensajes(mensajes) {
   let ultimoDia = ""
   const partes = []
 
+  let anterior = null
   for (const m of mensajes) {
     const dia = new Date(m.sent_at).toDateString()
     if (dia !== ultimoDia) {
       ultimoDia = dia
       partes.push('<div class="chip day-sep">' + esc(fechaLarga(m.sent_at)) + "</div>")
+      anterior = null      // tras el separador, el primero vuelve a llevar cola
     }
-    partes.push(burbuja(m))
+    partes.push(burbuja(m, anterior))
+    anterior = m
   }
   cont.innerHTML = partes.join("")
   cont.scrollTop = cont.scrollHeight
@@ -800,13 +803,15 @@ function bloqueMedia(m) {
 
   // Todavía no lo bajamos de WhatsApp: se descarga al tocarlo.
   if (!m.media_url) {
-    const ICONOS = { image: "📷", video: "🎥", audio: "🎤", ptt: "🎤", document: "📄", sticker: "🩹" }
-    return `<button class="doc" data-descargar="${m.id}" style="border:0;width:100%;cursor:pointer">
-              <span class="ico">${ICONOS[m.type] || "📎"}</span>
-              <span class="grow" style="text-align:left">
-                <div style="font-size:12.5px">${esc(m.media_name || "Archivo")}</div>
-                <div class="tiny dim">Tocá para descargar</div>
+    const ICONOS = { image: "imagen", video: "video", audio: "microfono",
+                     ptt: "microfono", document: "documento", sticker: "sticker" }
+    return `<button class="doc" data-descargar="${m.id}">
+              ${ico(ICONOS[m.type] || "clip", "ico-lg")}
+              <span class="grow">
+                <span class="doc-nombre">${esc(m.media_name || nombrePorTipo(m.type))}</span>
+                <span class="doc-sub">Tocá para descargar</span>
               </span>
+              ${ico("descargar", "ico-sm")}
             </button>`
   }
 
@@ -818,51 +823,95 @@ function bloqueMedia(m) {
     return `<div class="media"><video src="${esc(url)}" controls preload="metadata"></video></div>`
   }
   if (m.type === "audio" || m.type === "ptt") {
-    return `<div class="media"><audio src="${esc(url)}" controls preload="none"></audio></div>`
+    return `<div class="media media-audio"><audio src="${esc(url)}" controls preload="none"></audio></div>`
   }
-  return `<a class="doc" href="${esc(url)}?descargar=1&nombre=${encodeURIComponent(m.media_name || "archivo")}" target="_blank" rel="noopener">
-            <span class="ico">📄</span>
+  return `<a class="doc" href="${esc(url)}?descargar=1&nombre=${encodeURIComponent(m.media_name || "archivo")}"
+             target="_blank" rel="noopener">
+            ${ico("documento", "ico-lg")}
             <span class="grow">
-              <div style="font-size:12.5px">${esc(m.media_name || "Documento")}</div>
-              <div class="tiny dim">Descargar</div>
+              <span class="doc-nombre">${esc(m.media_name || "Documento")}</span>
+              <span class="doc-sub">Descargar</span>
             </span>
+            ${ico("descargar", "ico-sm")}
           </a>`
 }
 
-function burbuja(m) {
+function nombrePorTipo(tipo) {
+  return { image: "Foto", video: "Video", audio: "Audio", ptt: "Nota de voz",
+           document: "Documento", sticker: "Sticker" }[tipo] || "Archivo"
+}
+
+/** Tilde de entrega: una para enviado, doble para recibido, doble azul para leído. */
+function marcaEntrega(m) {
+  if (m.direction !== "out") return ""
+  const leido = m.status === "read"
+  const doble = leido || m.status === "delivered"
+  return `<span class="marca ${leido ? "leido" : ""}" title="${esc(m.status || "enviado")}">
+            ${ico(doble ? "tilde-doble" : "tilde", "ico-sm")}
+          </span>`
+}
+
+/**
+ * Una fila de mensaje: la burbuja más el botón de acciones al costado.
+ * El botón va FUERA de la burbuja — adentro se superponía con la primera
+ * línea de texto y hacía que los mensajes cortos se vieran deformados.
+ */
+function burbuja(m, anterior = null) {
+  const salida = m.direction === "out"
+  const lado   = salida ? "out" : "in"
+
+  // Mensajes seguidos del mismo lado y dentro de 5 minutos se agrupan:
+  // se juntan más, y solo el primero lleva la colita.
+  const seguido = anterior &&
+    anterior.direction === m.direction &&
+    (new Date(m.sent_at) - new Date(anterior.sent_at)) < 5 * 60 * 1000
+
   if (m.deleted) {
-    return `<div class="bubble ${m.direction === "out" ? "out" : "in"} borrado">
-              🚫 Mensaje eliminado
-              <div class="stamp">${esc(horaCorta(m.sent_at))}</div>
-            </div>`
+    return `<div class="msg ${lado} ${seguido ? "seguido" : ""}">
+      <div class="bubble borrado">
+        ${ico("prohibido", "ico-sm")} <span>Mensaje eliminado</span>
+        <span class="stamp">${esc(horaCorta(m.sent_at))}</span>
+      </div>
+    </div>`
   }
 
-  const marca = m.direction === "out"
-    ? '<span title="' + esc(m.status || "") + '">' +
-      (m.status === "read" ? "✓✓" : m.status === "delivered" ? "✓✓" : "✓") + "</span>"
-    : ""
-  const autor = m.direction === "out" && m.author
-    ? '<div class="author">' + esc(m.author) + "</div>" : ""
+  const autor = salida && m.author && !seguido
+    ? '<div class="autor">' + esc(m.author) + "</div>" : ""
   const citado = m.quoted_id
     ? '<div class="citado">' + esc(textoDeMensaje(m.quoted_id) || "Mensaje citado") + "</div>" : ""
   const reaccion = m.reaction
     ? '<span class="reaccion">' + esc(m.reaction) + "</span>" : ""
-  const estrella = m.starred ? " ⭐" : ""
+  const estrella = m.starred ? ico("estrella", "ico-sm lleno-estrella") : ""
+  const soloMedia = !m.body && bloqueMedia(m) !== ""
 
-  return `<div class="bubble ${m.direction === "out" ? "out" : "in"}"
+  return `<div class="msg ${lado} ${seguido ? "seguido" : ""}"
                data-msg="${esc(m.wa_msg_id || "")}" data-id="${m.id}">
-    <button class="acciones" data-menu-msg="${m.id}" title="Acciones">⋮</button>
-    ${autor}${citado}${bloqueMedia(m)}
-    ${m.body ? "<div>" + formatoWhatsapp(m.body) + "</div>" : ""}
-    <div class="stamp">${esc(horaCorta(m.sent_at))}${estrella} ${marca}</div>
-    ${reaccion}
+    <button class="msg-accion" data-menu-msg="${m.id}" title="Acciones">
+      ${ico("mas-vertical", "ico-sm")}
+    </button>
+    <div class="bubble ${soloMedia ? "solo-media" : ""}">
+      ${autor}${citado}${bloqueMedia(m)}
+      ${m.body ? '<div class="texto">' + formatoWhatsapp(m.body) + "</div>" : ""}
+      <span class="stamp">${estrella}${esc(horaCorta(m.sent_at))}${marcaEntrega(m)}</span>
+      ${reaccion}
+    </div>
   </div>`
 }
 
 /** Busca el texto de un mensaje ya cargado, para mostrar la cita. */
 function textoDeMensaje(waMsgId) {
   const m = mensajesCargados.find(x => x.wa_msg_id === waMsgId)
-  return m ? (m.body || "[" + m.type + "]").slice(0, 120) : null
+  return m ? (m.body || nombrePorTipo(m.type)).slice(0, 120) : null
+}
+
+/** Agrega un mensaje al final, agrupándolo con el anterior si corresponde. */
+function agregarBurbuja(m) {
+  const anterior = mensajesCargados[mensajesCargados.length - 1] || null
+  mensajesCargados.push(m)
+
+  const cont = $("#conv-body")
+  cont.insertAdjacentHTML("beforeend", burbuja(m, anterior))
+  cont.scrollTop = cont.scrollHeight
 }
 
 $("#volver-lista").addEventListener("click", () => volverALaLista())
@@ -907,23 +956,23 @@ function menuDeMensaje(ancla, msgId) {
   }
 
   const items = [
-    { icono: "↩", texto: "Responder", accion: () => activarRespuesta(m) },
-    { icono: "😀", texto: "Reaccionar", accion: () => elegirReaccion(waId) },
-    { icono: "📋", texto: "Copiar texto", accion: () => {
+    { icono: "responder", texto: "Responder",  accion: () => activarRespuesta(m) },
+    { icono: "emoji",     texto: "Reaccionar", accion: () => elegirReaccion(waId) },
+    { icono: "copiar",    texto: "Copiar texto", accion: () => {
         navigator.clipboard.writeText(m.body || "").then(() => toast("Copiado"))
       } },
-    { icono: "➡", texto: "Reenviar a…", accion: () => elegirDestinoReenvio(waId) },
-    { icono: m.starred ? "☆" : "⭐", texto: m.starred ? "Quitar destacado" : "Destacar",
+    { icono: "reenviar",  texto: "Reenviar a…", accion: () => elegirDestinoReenvio(waId) },
+    { icono: "estrella",  texto: m.starred ? "Quitar destacado" : "Destacar",
       accion: () => accion("destacar", { valor: !m.starred }) }
   ]
 
   if (m.direction === "out") {
     items.push({ separador: true })
-    items.push({ icono: "✏", texto: "Editar", accion: () => editarMensaje(m) })
+    items.push({ icono: "editar", texto: "Editar", accion: () => editarMensaje(m) })
   }
 
   items.push({ separador: true })
-  items.push({ icono: "🗑", texto: "Eliminar para todos", peligro: true,
+  items.push({ icono: "basura", texto: "Eliminar para todos", peligro: true,
                accion: async () => {
                  if (await confirmar("Eliminar este mensaje para todos?", "Eliminar")) accion("eliminar")
                } })
@@ -936,7 +985,7 @@ function elegirReaccion(waId) {
   const EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🔥", "✅"]
   const { overlay, cerrar } = abrirModal(`
     <div class="modal-head"><div class="h2">Reaccionar</div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button></div>
     <div class="modal-body">
       <div class="row wrap" style="gap:10px;font-size:28px">
         ${EMOJIS.map(e2 => `<button class="btn" data-emoji="${e2}" style="font-size:26px;padding:8px 12px">${e2}</button>`).join("")}
@@ -958,7 +1007,7 @@ async function elegirDestinoReenvio(waId) {
   const r = await API.get(u("/chats?limit=60"))
   const { overlay, cerrar } = abrirModal(`
     <div class="modal-head"><div class="h2">Reenviar a</div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button></div>
     <div class="modal-body" style="max-height:60vh;overflow-y:auto;padding:0">
       ${(r.chats || []).map(c => `
         <div class="chat-item" data-destino="${c.id}">
@@ -983,7 +1032,7 @@ async function elegirDestinoReenvio(waId) {
 function editarMensaje(m) {
   const { overlay, cerrar } = abrirModal(`
     <div class="modal-head"><div class="h2">Editar mensaje</div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button></div>
     <div class="modal-body">
       <textarea class="textarea" id="ed-texto">${esc(m.body || "")}</textarea>
       <div class="hint">WhatsApp solo permite editar dentro de los primeros 15 minutos.</div>
@@ -1075,9 +1124,7 @@ async function enviarMensaje() {
     composer.value = ""
     composer.style.height = "auto"
     if (m) {
-      mensajesCargados.push(m)
-      $("#conv-body").insertAdjacentHTML("beforeend", burbuja(m))
-      $("#conv-body").scrollTop = $("#conv-body").scrollHeight
+      agregarBurbuja(m)
     }
     recargarChatsPronto(300)
   } catch (e) {
@@ -1132,7 +1179,7 @@ function confirmarEnvioArchivos(archivos) {
         <div class="h2">Enviar ${archivos.length > 1 ? archivos.length + " archivos" : "archivo"}</div>
         <div class="tiny dim truncate">${esc(archivos.map(a => a.name).join(", "))}</div>
       </div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button>
     </div>
     <div class="modal-body">
       <div id="ad-preview"></div>
@@ -1226,7 +1273,7 @@ function pintarTagsConversacion() {
   const tags = chatActivo?.tags || []
 
   cont.innerHTML = tags.map(t =>
-    `<span class="chip chip-purple">${esc(t)} <button data-quitar="${esc(t)}" title="Quitar">✕</button></span>`
+    `<span class="chip chip-purple">${esc(t)} <button data-quitar="${esc(t)}" title="Quitar">${ico("cerrar", "ico-sm")}</button></span>`
   ).join("")
 
   cont.querySelectorAll("[data-quitar]").forEach(b => b.addEventListener("click", async () => {
@@ -1253,7 +1300,7 @@ $("#conv-tags").addEventListener("click", async () => {
         <div class="h2">Etiquetas</div>
         <div class="tiny dim">${esc(chatActivo.display_name || "")}</div>
       </div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button>
     </div>
     <div class="modal-body">
       <div class="field">
@@ -1304,25 +1351,26 @@ $("#conv-menu").addEventListener("click", e => {
 
   menuFlotante(e.currentTarget, [
     { titulo: "En WhatsApp" },
-    { icono: "📥", texto: chatActivo.archived ? "Desarchivar" : "Archivar",
+    { icono: chatActivo.archived ? "bandeja" : "archivar",
+      texto: chatActivo.archived ? "Desarchivar" : "Archivar",
       accion: () => accion(chatActivo.archived ? "desarchivar" : "archivar") },
-    { icono: "🔕", texto: "Silenciar 8 horas",  accion: () => accion("silenciar", { horas: 8 }) },
-    { icono: "🔕", texto: "Silenciar 1 semana", accion: () => accion("silenciar", { horas: 168 }) },
-    { icono: "🔵", texto: "Marcar como no leído", accion: () => accion("no-leido") },
+    { icono: "silenciar", texto: "Silenciar 8 horas",  accion: () => accion("silenciar", { horas: 8 }) },
+    { icono: "silenciar", texto: "Silenciar 1 semana", accion: () => accion("silenciar", { horas: 168 }) },
+    { icono: "circulo",   texto: "Marcar como no leído", accion: () => accion("no-leido") },
     { separador: true },
     { titulo: "CRM" },
-    { icono: "🗒", texto: "Notas internas",       accion: () => abrirNotas() },
-    { icono: "⏰", texto: "Programar seguimiento", accion: () => abrirSeguimiento() },
-    { icono: "👤", texto: "Info del contacto",     accion: () => verInfoContacto() },
+    { icono: "nota",    texto: "Notas internas",       accion: () => abrirNotas() },
+    { icono: "reloj",   texto: "Programar seguimiento", accion: () => abrirSeguimiento() },
+    { icono: "usuario", texto: "Info del contacto",     accion: () => verInfoContacto() },
     { separador: true },
-    { icono: "🧹", texto: "Vaciar conversación", peligro: true, accion: async () => {
+    { icono: "limpiar", texto: "Vaciar conversación", peligro: true, accion: async () => {
         if (await confirmar("Se borran todos los mensajes de este chat, también en tu WhatsApp. Los destacados se conservan.", "Vaciar"))
           accion("vaciar")
       } },
-    { icono: "⛔", texto: "Bloquear contacto", peligro: true, accion: async () => {
+    { icono: "bloquear", texto: "Bloquear contacto", peligro: true, accion: async () => {
         if (await confirmar("Bloquear a este contacto en WhatsApp?", "Bloquear")) accion("bloquear")
       } },
-    { icono: "🗑", texto: "Eliminar chat", peligro: true, accion: async () => {
+    { icono: "basura", texto: "Eliminar chat", peligro: true, accion: async () => {
         if (await confirmar("Se elimina la conversación del CRM y de tu WhatsApp. No se puede deshacer.", "Eliminar")) {
           await accion("eliminar")
           chatActivo = null
@@ -1336,7 +1384,7 @@ $("#conv-menu").addEventListener("click", e => {
 async function verInfoContacto() {
   const { overlay } = abrirModal(`
     <div class="modal-head"><div class="h2">${esc(chatActivo.display_name)}</div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button></div>
     <div class="modal-body" id="info-cuerpo"><div class="muted">Consultando a WhatsApp…</div></div>`)
 
   try {
@@ -1365,7 +1413,7 @@ function abrirNotas() {
     <div class="modal-head">
       <div><div class="h2">Notas internas</div>
         <div class="tiny dim">${esc(chatActivo.display_name)} · no las ve el cliente</div></div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button>
     </div>
     <div class="modal-body">
       <textarea class="textarea" id="nt-texto" style="min-height:200px"
@@ -1392,7 +1440,7 @@ function abrirSeguimiento() {
   const opciones = [["Mañana", 1], ["En 3 días", 3], ["En 1 semana", 7], ["En 15 días", 15], ["En 30 días", 30]]
   const { overlay, cerrar } = abrirModal(`
     <div class="modal-head"><div class="h2">Programar seguimiento</div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button></div>
     <div class="modal-body">
       ${chatActivo.follow_up_at
         ? '<div class="chip chip-warn">Ya tiene uno para el ' + esc(new Date(chatActivo.follow_up_at).toLocaleDateString("es-AR")) + "</div>"
@@ -1465,7 +1513,7 @@ async function cargarRapidasAdmin() {
     ? rapidas.map(r => `<div class="card col" style="gap:9px">
         <div class="spread">
           <span class="atajo" style="color:var(--acc);font-weight:650">/${esc(r.shortcut)}</span>
-          <button class="btn btn-sm btn-danger" data-del-rapida="${r.id}">🗑</button>
+          <button class="btn btn-sm btn-danger" data-del-rapida="${r.id}" title="Eliminar">${ico("basura", "ico-sm")}</button>
         </div>
         <div class="variant">${esc(r.body)}</div>
       </div>`).join("")
@@ -1481,7 +1529,7 @@ async function cargarRapidasAdmin() {
 $("#btn-nueva-rapida").addEventListener("click", () => {
   const { overlay, cerrar } = abrirModal(`
     <div class="modal-head"><div class="h2">Nueva respuesta rápida</div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button></div>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button></div>
     <div class="modal-body">
       <div class="field">
         <label class="label">Atajo</label>
@@ -1572,7 +1620,7 @@ $("#est-publicar").addEventListener("click", async () => {
       $("#est-caption").value = ""
       $("#est-preview").innerHTML = ""
     }
-    toast("Estado publicado 📸")
+    toast("Estado publicado")
     cargarEstados()
   } catch (e) {
     toast(e.message, "error")
@@ -1612,20 +1660,22 @@ async function cargarEstados() {
    ============================================================ */
 function alMensajeNuevo(p) {
   if (chatActivo && p.chatId === chatActivo.id) {
-    $("#conv-body").insertAdjacentHTML("beforeend", burbuja(p.mensaje))
-    $("#conv-body").scrollTop = $("#conv-body").scrollHeight
+    agregarBurbuja(p.mensaje)
     API.post(u("/chats/" + chatActivo.id + "/read")).catch(() => {})
   } else if (p.mensaje?.direction === "in") {
     const quien = p.contacto?.name || p.contacto?.push_name || p.contacto?.phone || "Nuevo mensaje"
-    toast("💬 " + quien + ": " + (p.mensaje.body || "").slice(0, 60))
+    toast(quien + ": " + (p.mensaje.body || "").slice(0, 60))
   }
   recargarChatsPronto()
   refrescarResumen()
 }
 
 function alAck(p) {
-  const el = document.querySelector('.bubble[data-msg="' + p.waMsgId + '"] .stamp span')
-  if (el) el.textContent = p.status === "sent" ? "✓" : "✓✓"
+  const marca = document.querySelector('.msg[data-msg="' + CSS.escape(p.waMsgId) + '"] .stamp .marca')
+  if (!marca) return
+  marca.innerHTML = ico(p.status === "sent" ? "tilde" : "tilde-doble", "ico-sm")
+  marca.classList.toggle("leido", p.status === "read")
+  marca.title = p.status
 }
 
 function alSesionCambio(p) {
@@ -1778,13 +1828,16 @@ const ESTADO_CAMPANIA = {
 /** Traduce los filtros guardados de una campaña a chips legibles. */
 function chipsDeZonas(filtros = {}) {
   const chips = []
-  for (const p of filtros.provincias || []) chips.push('<span class="chip chip-info">🗺 ' + esc(p) + "</span>")
-  for (const a of filtros.areas || [])      chips.push('<span class="chip chip-info">📍 ' + esc(mapaAreas[a] || "área " + a) + "</span>")
-  for (const p of filtros.paises || [])     chips.push('<span class="chip chip-info">🌎 +' + esc(p) + "</span>")
+  const chip = (clase, icono, texto) =>
+    '<span class="chip ' + clase + '">' + ico(icono, "ico-sm") + " " + esc(texto) + "</span>"
 
-  if (!chips.length) chips.push('<span class="chip">🌐 Todas las zonas</span>')
-  if (filtros.friosDias > 0) chips.push('<span class="chip chip-warn">❄ callados +' + filtros.friosDias + "d</span>")
-  if (filtros.tag)           chips.push('<span class="chip chip-purple">🏷 ' + esc(filtros.tag) + "</span>")
+  for (const p of filtros.provincias || []) chips.push(chip("chip-info", "mapa", p))
+  for (const a of filtros.areas || [])      chips.push(chip("chip-info", "mapa-pin", mapaAreas[a] || "Área " + a))
+  for (const p of filtros.paises || [])     chips.push(chip("chip-info", "globo", "+" + p))
+
+  if (!chips.length)         chips.push(chip("", "globo", "Todas las zonas"))
+  if (filtros.friosDias > 0) chips.push(chip("chip-warn", "nieve", "callados +" + filtros.friosDias + "d"))
+  if (filtros.tag)           chips.push(chip("chip-purple", "etiqueta", filtros.tag))
   return chips.join(" ")
 }
 
@@ -1799,7 +1852,7 @@ function pintarDifusiones() {
   const cont = $("#lista-difusiones")
   if (!difusiones.length) {
     cont.innerHTML = `<div class="card center col" style="padding:50px;text-align:center">
-      <div class="ico" style="font-size:40px;opacity:.35">📣</div>
+      ${ico("megafono", "ico-xl dim")}
       <div class="h3">Todavía no creaste ninguna difusión</div>
       <div class="muted small">Armá tu primer envío masivo con “＋ Nueva difusión”.</div>
     </div>`
@@ -1824,8 +1877,10 @@ function pintarDifusiones() {
           <div class="row wrap" style="gap:5px;margin-top:7px">${chipsDeZonas(c.filters || {})}</div>
         </div>
         <div class="row" style="gap:7px">
-          ${["draft", "paused"].includes(c.status) ? `<button class="btn btn-primary btn-sm" data-start="${c.id}">▶ ${c.status === "paused" ? "Reanudar" : "Iniciar"}</button>` : ""}
-          ${c.status === "running" ? `<button class="btn btn-sm" data-pause="${c.id}">⏸ Pausar</button>` : ""}
+          ${["draft", "paused"].includes(c.status)
+            ? `<button class="btn btn-primary btn-sm" data-start="${c.id}">${ico("play", "ico-sm")} ${c.status === "paused" ? "Reanudar" : "Iniciar"}</button>` : ""}
+          ${c.status === "running"
+            ? `<button class="btn btn-sm" data-pause="${c.id}">${ico("pausa", "ico-sm")} Pausar</button>` : ""}
           ${["running", "paused", "draft"].includes(c.status) ? `<button class="btn btn-sm btn-danger" data-cancel="${c.id}">Cancelar</button>` : ""}
           <button class="btn btn-sm" data-ver="${c.id}">Detalle</button>
         </div>
@@ -1833,8 +1888,8 @@ function pintarDifusiones() {
 
       <div class="bar"><i style="width:${pct}%"></i></div>
       <div class="row wrap" style="gap:8px">
-        <span class="chip chip-acc">✓ ${nEsp(c.sent)} enviados</span>
-        ${c.failed ? '<span class="chip chip-danger">✕ ' + nEsp(c.failed) + " fallidos</span>" : ""}
+        <span class="chip chip-acc" data-enviados>${ico("tilde", "ico-sm")} ${nEsp(c.sent)} enviados</span>
+        ${c.failed ? '<span class="chip chip-danger">' + ico("cerrar", "ico-sm") + " " + nEsp(c.failed) + " fallidos</span>" : ""}
         <span class="chip">${nEsp(c.total - procesados)} pendientes</span>
         <span class="chip">Total ${nEsp(c.total)}</span>
         <span class="grow"></span>
@@ -1867,8 +1922,9 @@ function alProgresoDifusion(p) {
   const procesados = p.sent + p.failed
   const pct = p.total ? Math.round(procesados / p.total * 100) : 0
   tarjeta.querySelector(".bar > i").style.width = pct + "%"
-  const chips = tarjeta.querySelectorAll(".chip")
-  if (chips[1]) chips[1].textContent = "✓ " + nEsp(p.sent) + " enviados"
+  // Por data-atributo, no por índice: los chips de zona cambian el orden.
+  const chipEnviados = tarjeta.querySelector("[data-enviados]")
+  if (chipEnviados) chipEnviados.innerHTML = ico("tilde", "ico-sm") + " " + nEsp(p.sent) + " enviados"
   const espera = tarjeta.querySelector("[data-espera]")
   if (espera && p.ultimo) espera.textContent = "último: " + p.ultimo
 }
@@ -1891,7 +1947,7 @@ async function modalDetalle(id) {
           <div class="h2">${esc(c.name)}</div>
           <div class="tiny dim">${nEsp(c.sent)} enviados · ${nEsp(c.failed)} fallidos · ${nEsp(c.total)} total</div>
         </div>
-        <button class="btn btn-ghost btn-sm" data-cerrar>✕</button>
+        <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button>
       </div>
       <div class="modal-body">
         <div class="field">
@@ -1981,7 +2037,7 @@ async function abrirAsistenteDifusion(prefill = {}) {
         <div class="h2">Nueva difusión</div>
         <div class="tiny dim">Cada contacto recibe una versión distinta del mensaje</div>
       </div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button>
     </div>
     <div class="modal-body">
 
@@ -2296,7 +2352,7 @@ async function cargarPlantillas() {
       ? plantillas.map(t => `<div class="card col" style="gap:10px">
           <div class="spread">
             <div style="font-weight:640">${esc(t.name)}</div>
-            <button class="btn btn-sm btn-danger" data-del-tpl="${t.id}">🗑</button>
+            <button class="btn btn-sm btn-danger" data-del-tpl="${t.id}" title="Eliminar">${ico("basura", "ico-sm")}</button>
           </div>
           <div class="variant">${esc(t.body)}</div>
         </div>`).join("")
@@ -2314,7 +2370,7 @@ $("#btn-nueva-plantilla").addEventListener("click", () => {
   const { overlay, cerrar } = abrirModal(`
     <div class="modal-head">
       <div class="h2">Nueva plantilla</div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button>
     </div>
     <div class="modal-body">
       <div class="field">

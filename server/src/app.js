@@ -54,13 +54,24 @@ app.use(express.static(PUBLIC_DIR, {
   etag: true
 }))
 
-/** Lee el HTML una vez y le agrega ?v=BUILD a cada /assets/... */
+// El sprite de iconos se inyecta en el HTML en vez de repetirlo en cada
+// página: una sola fuente de verdad y sin pedido extra al servidor
+// (un <use> a un SVG externo tiene problemas de compatibilidad).
+let spriteIconos = ""
+try {
+  spriteIconos = fs.readFileSync(path.join(PUBLIC_DIR, "assets", "iconos.svg"), "utf8")
+} catch (e) {
+  console.warn("[app] no encontré assets/iconos.svg:", e.message)
+}
+
+/** Lee el HTML una vez, inyecta los iconos y versiona los assets. */
 const paginasCache = new Map()
 function servirPagina(archivo) {
   return (req, res) => {
     let html = paginasCache.get(archivo)
     if (!html) {
       html = fs.readFileSync(path.join(PUBLIC_DIR, archivo), "utf8")
+        .replace("<!--ICONOS-->", spriteIconos)
         .replace(/(src|href)="(\/assets\/[^"]+)"/g, `$1="$2?v=${BUILD}"`)
       paginasCache.set(archivo, html)
     }

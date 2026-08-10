@@ -126,7 +126,7 @@ function pintarClientes() {
         <button class="btn btn-sm ${c.status === "active" ? "btn-danger" : ""}" data-toggle="${c.id}">
           ${c.status === "active" ? "Suspender" : "Activar"}
         </button>
-        <button class="btn btn-sm btn-danger" data-borrar="${c.id}" title="Eliminar cliente">🗑</button>
+        <button class="btn btn-sm btn-danger" data-borrar="${c.id}" title="Eliminar cliente">${ico("basura", "ico-sm")}</button>
       </td>
     </tr>`
   }).join("")
@@ -178,7 +178,7 @@ $("#btn-nuevo").addEventListener("click", () => {
         <div class="h2">Nuevo cliente</div>
         <div class="tiny dim">Se crea su CRM, su usuario y su línea de WhatsApp</div>
       </div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button>
     </div>
     <div class="modal-body">
       <div class="field">
@@ -267,7 +267,7 @@ function modalCredenciales(r, password) {
   abrirModal(`
     <div class="modal-head">
       <div class="h2">Datos de acceso</div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button>
     </div>
     <div class="modal-body">
       <div class="muted small">Pasale estos datos al cliente. La contraseña no se vuelve a mostrar.</div>
@@ -291,7 +291,7 @@ function modalEditar(id) {
   const { overlay, cerrar } = abrirModal(`
     <div class="modal-head">
       <div class="h2">${esc(c.name)}</div>
-      <button class="btn btn-ghost btn-sm" data-cerrar>✕</button>
+      <button class="btn btn-ghost btn-sm" data-cerrar>${ico("cerrar")}</button>
     </div>
     <div class="modal-body">
       <div class="field">

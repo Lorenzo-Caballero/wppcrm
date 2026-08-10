@@ -6,13 +6,16 @@
   <meta name="theme-color" content="#0a0e14">
   <title>Administración · wppcrm</title>
   <link rel="stylesheet" href="/assets/css/app.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛠️</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2310b981' stroke-width='2' stroke-linecap='round'><rect x='3' y='3' width='18' height='18' rx='4'/><path d='M9 3v18M13 8h4M13 12h4M13 16h4'/></svg>">
 </head>
 <body>
+<!--ICONOS-->
 <div class="shell">
 
   <!-- Botón y fondo del menú lateral en celular -->
-  <button class="btn boton-menu" id="abrir-menu" title="Menú">☰</button>
+  <button class="btn boton-menu" id="abrir-menu" title="Menú">
+    <svg class="ico ico-lg"><use href="#i-menu"></use></svg>
+  </button>
   <div class="rail-fondo" id="rail-fondo"></div>
 
   <aside class="rail" id="rail">
@@ -26,9 +29,9 @@
 
     <nav class="rail-nav">
       <div class="rail-sec">Plataforma</div>
-      <div class="nav-item active" data-vista="clientes"><span class="ico">🏢</span> Clientes</div>
-      <div class="nav-item" data-vista="sesiones"><span class="ico">📱</span> Sesiones WhatsApp</div>
-      <div class="nav-item" data-vista="cuenta"><span class="ico">🔑</span> Mi cuenta</div>
+      <div class="nav-item active" data-vista="clientes"><svg class="ico"><use href="#i-edificio"></use></svg> Clientes</div>
+      <div class="nav-item" data-vista="sesiones"><svg class="ico"><use href="#i-telefono"></use></svg> Sesiones WhatsApp</div>
+      <div class="nav-item" data-vista="cuenta"><svg class="ico"><use href="#i-llave"></use></svg> Mi cuenta</div>
     </nav>
 
     <div class="rail-foot">
@@ -37,7 +40,9 @@
           <div class="small" style="font-weight:600" id="owner-name">—</div>
           <div class="tiny dim truncate" id="owner-email">—</div>
         </div>
-        <button class="btn btn-ghost btn-sm" id="logout" title="Salir">⏻</button>
+        <button class="btn btn-ghost btn-sm" id="logout" title="Salir">
+          <svg class="ico"><use href="#i-salir"></use></svg>
+        </button>
       </div>
     </div>
   </aside>

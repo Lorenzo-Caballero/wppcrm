@@ -48,6 +48,16 @@ function toast(mensaje, tipo = "ok", ms = 3800) {
   }, ms)
 }
 
+/* ---------------- Iconos ---------------- */
+/**
+ * Devuelve el markup de un icono del sprite (assets/iconos.svg).
+ * @param nombre  sin el prefijo "i-" (ej: "chat", "enviar")
+ * @param clase   clases extra (ej: "ico-lg")
+ */
+function ico(nombre, clase = "") {
+  return '<svg class="ico ' + clase + '" aria-hidden="true"><use href="#i-' + nombre + '"></use></svg>'
+}
+
 /* ---------------- Helpers de DOM ---------------- */
 const $  = (sel, raiz = document) => raiz.querySelector(sel)
 const $$ = (sel, raiz = document) => [...raiz.querySelectorAll(sel)]
@@ -196,8 +206,9 @@ function menuFlotante(anclaOPunto, items) {
   menu.innerHTML = items.map((it, i) => {
     if (it.separador) return "<hr>"
     if (it.titulo)    return '<div class="titulo">' + esc(it.titulo) + "</div>"
+    // `icono` es el nombre de un símbolo del sprite, no un emoji.
     return `<button data-i="${i}" class="${it.peligro ? "peligro" : ""}">
-              <span style="width:18px;text-align:center">${it.icono || ""}</span>
+              ${it.icono ? ico(it.icono) : '<span style="width:18px"></span>'}
               <span>${esc(it.texto)}</span>
             </button>`
   }).join("")
