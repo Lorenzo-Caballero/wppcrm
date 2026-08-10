@@ -23,6 +23,9 @@ services:
     restart: unless-stopped
     # Chromium necesita memoria compartida: sin esto las sesiones crashean.
     shm_size: "1gb"
+    # Tiempo para que Chromium cierre prolijo antes del SIGKILL. Si lo matan
+    # de golpe deja un SingletonLock que traba el arranque siguiente.
+    stop_grace_period: 30s
     # Publicado SOLO en loopback: lo alcanza un nginx del host, nunca internet.
     # Si usás el nginx en contenedor (perfil "proxy"), esto es inofensivo.
     ports:

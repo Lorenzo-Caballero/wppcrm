@@ -72,6 +72,33 @@ function activas() {
   return [...vivas.values()].filter(s => s.status === ESTADOS.CONECTADO || s.status === ESTADOS.CONECTANDO).length
 }
 
+/**
+ * Borra el candado de perfil que deja Chromium cuando no cierra prolijo.
+ *
+ * wppconnect usa <tokensDir>/<session_key> como userDataDir. Si el contenedor
+ * se recrea (docker compose up --build) mientras el navegador está vivo, queda
+ * un SingletonLock apuntando al hostname del contenedor anterior, y el próximo
+ * arranque falla con:
+ *   "The profile appears to be in use by another Chromium process on another computer"
+ *
+ * Es seguro borrarlo porque un session_key nunca corre dos veces a la vez:
+ * el mapa `vivas` lo impide dentro del proceso, y solo hay un proceso por volumen.
+ */
+function limpiarBloqueoPerfil(sessionKey) {
+  const dir = path.join(carpetaTokens(), sessionKey)
+  if (!fs.existsSync(dir)) return
+
+  for (const archivo of ["SingletonLock", "SingletonCookie", "SingletonSocket"]) {
+    const ruta = path.join(dir, archivo)
+    try {
+      // lstat, no stat: SingletonLock es un symlink roto y stat() falla.
+      fs.lstatSync(ruta)
+      fs.rmSync(ruta, { force: true, recursive: true })
+      log.info("wa:" + sessionKey, "candado de perfil removido:", archivo)
+    } catch (_) { /* no existe: es lo normal */ }
+  }
+}
+
 // ------------------------------------------------------------
 //  ARRANCAR SESIÓN
 // ------------------------------------------------------------
@@ -98,6 +125,8 @@ async function iniciarSesion(sesion) {
   vivas.set(key, { client: null, status: ESTADOS.CONECTANDO, qr: null, arrancando: true,
                    tenantId: sesion.tenant_id, sessionId: sesion.id })
   await setEstado(sesion, ESTADOS.CONECTANDO)
+
+  limpiarBloqueoPerfil(key)   // por si el contenedor anterior se fue sin cerrar Chromium
   log.info("wa:" + key, "iniciando navegador...")
 
   // No await: la creación puede tardar minutos esperando el escaneo del QR.
@@ -405,11 +434,25 @@ async function autoIniciarSesiones() {
   if (lanzadas) log.ok("wa", lanzadas, "sesión(es) reanudada(s)")
 }
 
+/**
+ * Cierra todos los navegadores al apagar el proceso.
+ * En paralelo y con techo de 8 s: Docker manda SIGKILL a los 30 s
+ * (stop_grace_period), y si nos pasamos, Chromium muere de golpe y deja
+ * el candado de perfil que después rompe el próximo arranque.
+ */
 async function cerrarTodo() {
-  for (const [key, r] of vivas) {
-    try { await r.client?.close() } catch (_) {}
-    log.info("wa", "cerrada", key)
-  }
+  const cierres = [...vivas.entries()].map(async ([key, r]) => {
+    try {
+      await Promise.race([
+        r.client?.close(),
+        new Promise(res => setTimeout(res, 8000))
+      ])
+      log.info("wa", "cerrada", key)
+    } catch (e) {
+      log.warn("wa", "no cerró prolijo " + key + ": " + e.message)
+    }
+  })
+  await Promise.all(cierres)
   vivas.clear()
 }
 
